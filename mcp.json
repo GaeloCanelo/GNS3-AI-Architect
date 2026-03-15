@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gns3-agent": {
+      "command": "node",
+      "args": [
+        "C:\\Ruta\\A\\TU_USUARIO\\Agente_GNS3\\index.js"
+      ]
+    }
+  }
+}
