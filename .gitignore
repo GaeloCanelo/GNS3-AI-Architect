@@ -2,6 +2,22 @@ node_modules/
 .gemini/
 backup/
 *.bak
+
+# Ignorar archivos en la carpeta de scripts temporales
+scripts_temporales/*
+# Excepto un posible .gitkeep si queremos mantener la carpeta en el repo
+!scripts_temporales/.gitkeep
+
+# Ignorar las medias de espacios de trabajo
+Topology_Workspace/*
+!Topology_Workspace/.gitkeep
+
+# Ignorar los reportes de topologías
+Topology_Reports/*
+!Topology_Reports/.gitkeep
+!Topology_Reports/Topology_IP.xlsx
+
+# Scripts de sesiones anteriores
 config_vpcs.js
 config_routers_ips.js
 config_routers_rip.js
