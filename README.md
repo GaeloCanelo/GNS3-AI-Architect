@@ -35,7 +35,7 @@ GNS3-AI-Architect/
 
 *   [GNS3](https://www.gns3.com/) instalado y funcionando (Puerto 3080).
 *   [Node.js](https://nodejs.org/) (v18 o superior).
-*   **Gemini CLI** configurado en tu sistema.
+*   **Gemini CLI** configurado en tu sistema (*Si no lo tienes, puedes instalarlo usando: `npm install -g @google/gemini`*).
 
 ---
 
