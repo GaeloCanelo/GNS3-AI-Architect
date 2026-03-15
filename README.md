@@ -6,11 +6,28 @@
 
 ## ✨ Características Principales
 
-*   **🎨 Diseño Topológico Autónomo:** Genera nodos y enlaces físicos en GNS3 a partir de diagramas visuales o descripciones en lenguaje natural.
+*   **🎨 Diseño Topológico Autónomo:** Genera nodos y enlaces físicos en GNS3 a partir de diagramas visuales o descripciones en lenguaje natural respetando el etiquetado IP estricto.
 *   **⚡ Zero-Touch Provisioning (ZTP):** Configuración automática de direccionamiento IP en VPCs y Routers Cisco (IOS).
-*   **🛣️ Enrutamiento Dinámico Inteligente:** Implementación automática de protocolos de enrutamiento (RIPv2, con capacidad de expansión a OSPF/EIGRP).
+*   **🛣️ Enrutamiento Dinámico Inteligente:** Implementación automática de protocolos de enrutamiento estático robusto y dinámico (RIPv2).
 *   **🏷️ Documentación Visual Dinámica:** Generación de etiquetas y decoraciones SVG en el lienzo de GNS3 para una topología profesional y legible.
-*   **🛠️ Autocuración (Self-Healing):** Capacidad de detectar y resolver errores comunes de configuración (diálogos iniciales de Cisco, Duplex Mismatch, etc.).
+*   **🏥 Health Check End-to-End:** El Agente posee la capacidad de ejecutar auditorías automáticas descubriendo hosts encendidos, realizando Pings P2P paralelos y confirmando la convergencia total.
+*   **🛡️ Autocuración y Estabilidad (Anti-Crashes):** Lógica integrada de "Polling Estricto Dinámico" para interactuar suavemente con Dynamips evitando corrupciones del servidor GNS3 durante limpiezas.
+
+---
+
+## 📂 Arquitectura del Repositorio
+
+Para mantener un flujo de trabajo profesional y auditable, este repositorio exige y autogestiona la siguiente estructura base:
+
+```text
+GNS3-AI-Architect/
+├── Documentation/        # Manuales de Arquitectura, Usuario y "Skills" del Agente
+├── Topology_Workspace/   # Directorio DEDICADO para arrastrar Imágenes/PDFs a analizar
+├── scripts_temporales/   # Scripts volátiles generados por la IA (Borrado Automático)
+├── Topology_Reports/     # Reportes auto-generados POST-Despliegue (.xlsx / .md)
+├── index.js              # El núcleo del Servidor MCP / GNS3
+└── run_mcp_tool.js       # Cliente de Terminal para Simulaciones y Health Checks
+```
 
 ---
 
