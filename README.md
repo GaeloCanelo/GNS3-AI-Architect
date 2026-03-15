@@ -68,6 +68,7 @@ Para guías detalladas, consulta nuestra carpeta de documentación:
 *   [Manual de Usuario](./Documentation/Manual_Usuario.md): Guía paso a paso de la A a la Z.
 *   [Manual Técnico](./Documentation/Manual_Tecnico.md): Detalles de arquitectura y lógica interna.
 *   [Skill Mastery](./Documentation/Skill.md): Reglas de oro para el diseño y configuración.
+*   [Prompts Compatibles](./Documentation/Prompts.md): Hoja de trucos con instrucciones estandarizadas para Antigravity, Gemini CLI y Claude.
 
 ---
 
