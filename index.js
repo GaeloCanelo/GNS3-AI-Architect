@@ -71,7 +71,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             bg_color: { type: "string" },
             z: { type: "number" }
           },
-          required: ["project_id", "shape_type", "x", "y"] 
+          required: ["project_id", "shape_type", "x", "y"]
         }
       },
       {
@@ -150,8 +150,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
 
       if (tmpl.template_type === "dynamips") {
-        body.properties = { platform: tmpl.platform, image: tmpl.image, nvram: tmpl.nvram, ram: tmpl.ram,
-          slot0: tmpl.slot0 || "C7200-IO-FE", slot1: "PA-2FE-TX", slot2: "PA-2FE-TX", slot3: "PA-2FE-TX" };
+        body.properties = {
+          platform: tmpl.platform, image: tmpl.image, nvram: tmpl.nvram, ram: tmpl.ram,
+          slot0: tmpl.slot0 || "C7200-IO-FE", slot1: "PA-2FE-TX", slot2: "PA-2FE-TX", slot3: "PA-2FE-TX"
+        };
       }
 
       const data = await fetchGNS3(`/projects/${args.project_id}/nodes`, 'POST', body);
@@ -159,9 +161,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     else if (name === "conectar_nodos") {
+      const ad1 = args.adapter1 !== undefined ? args.adapter1 : 0;
+      const pt1 = args.port1 !== undefined ? args.port1 : 0;
+      const ad2 = args.adapter2 !== undefined ? args.adapter2 : 0;
+      const pt2 = args.port2 !== undefined ? args.port2 : 0;
       await fetchGNS3(`/projects/${args.project_id}/links`, 'POST', {
-        nodes: [{ node_id: args.node1_id, adapter_number: args.adapter1 || args.port1, port_number: 0 },
-                { node_id: args.node2_id, adapter_number: args.adapter2 || args.port2, port_number: 0 }]
+        nodes: [{ node_id: args.node1_id, adapter_number: ad1, port_number: pt1 },
+        { node_id: args.node2_id, adapter_number: ad2, port_number: pt2 }]
       });
       return { content: [{ type: "text", text: "Enlace creado." }] };
     }
@@ -169,9 +175,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     else if (name === "agregar_decoracion") {
       let svgContent = "";
       const fontSize = args.font_size || 12;
-      const colorTexto = args.color || "#FFFFFF";  
+      const colorTexto = args.color || "#FFFFFF";
       const z = args.z || 3;
-      
+
       if (args.shape_type === "rectangle") {
         const w = args.width || 100;
         const h = args.height || 100;
@@ -182,10 +188,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const textHeight = fontSize * 1.3;
         let bg = "";
         if (args.bg_color) {
-           bg = `<rect width="${textWidth}" height="${textHeight}" fill="${args.bg_color}" fill-opacity="1.0" rx="3" ry="3" />`;
+          bg = `<rect width="${textWidth}" height="${textHeight}" fill="${args.bg_color}" fill-opacity="1.0" rx="3" ry="3" />`;
         }
         // Ajustamos y="fontSize * 0.9" para compensar el desfase vertical observado
-        svgContent = `<svg width="${textWidth}" height="${textHeight}" xmlns="http://www.w3.org/2000/svg">${bg}<text x="${textWidth/2}" y="${fontSize * 0.9}" fill="${colorTexto}" font-family="Arial" font-size="${fontSize}" font-weight="bold" text-anchor="middle">${args.content}</text></svg>`;
+        svgContent = `<svg width="${textWidth}" height="${textHeight}" xmlns="http://www.w3.org/2000/svg">${bg}<text x="${textWidth / 2}" y="${fontSize * 0.9}" fill="${colorTexto}" font-family="Arial" font-size="${fontSize}" font-weight="bold" text-anchor="middle">${args.content}</text></svg>`;
       }
 
       await fetchGNS3(`/projects/${args.project_id}/drawings`, 'POST', {
@@ -196,20 +202,49 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     else if (name === "limpiar_proyecto") {
       const deleteSafe = async (url) => { try { await fetchGNS3(url, 'DELETE'); } catch (e) { if (!e.message.includes("404")) throw e; } };
+
+      const nodes = await fetchGNS3(`/projects/${args.project_id}/nodes`);
+
+      // 1. Enviar señal de apagado a todos los nodos
+      for (const node of nodes) {
+        if (node.status === "started" || node.status === "suspended") {
+          try { await fetchGNS3(`/projects/${args.project_id}/nodes/${node.node_id}/stop`, 'POST'); } catch (e) { }
+        }
+      }
+
+      // 2. Hacer polling crítico hasta que Dynamips confirme el apagado total (Max 30s)
+      let allStopped = false;
+      let retries = 0;
+      while (!allStopped && retries < 15) {
+        allStopped = true;
+        const currentNodes = await fetchGNS3(`/projects/${args.project_id}/nodes`);
+        for (const n of currentNodes) {
+          if (n.status !== "stopped") allStopped = false;
+        }
+        if (!allStopped) await sleep(2000);
+        retries++;
+      }
+
+      // Delay adicional de seguridad tras el apagado
+      await sleep(2000);
+
+      // 3. Destrucción Secuencial Lenta
       const links = await fetchGNS3(`/projects/${args.project_id}/links`);
       for (const link of links) { await deleteSafe(`/projects/${args.project_id}/links/${link.link_id}`); await sleep(500); }
-      const nodes = await fetchGNS3(`/projects/${args.project_id}/nodes`);
-      for (const node of nodes) { await deleteSafe(`/projects/${args.project_id}/nodes/${node.node_id}`); await sleep(500); }
+
+      for (const node of nodes) { await deleteSafe(`/projects/${args.project_id}/nodes/${node.node_id}`); await sleep(1000); }
+
       const drawings = await fetchGNS3(`/projects/${args.project_id}/drawings`);
       for (const drawing of drawings) { await deleteSafe(`/projects/${args.project_id}/drawings/${drawing.drawing_id}`); await sleep(500); }
-      return { content: [{ type: "text", text: "Proyecto limpiado con seguridad." }] };
+
+      return { content: [{ type: "text", text: "Proyecto limpiado con seguridad extrema (Polling Strict)." }] };
     }
 
     else if (name === "configurar_vpc") {
       const node = await fetchGNS3(`/projects/${args.project_id}/nodes/${args.node_id}`);
       if (node.status === "stopped") {
         await fetchGNS3(`/projects/${args.project_id}/nodes/${args.node_id}/start`, 'POST');
-        await sleep(2000); 
+        await sleep(2000);
       }
 
       const consolePort = node.console;
