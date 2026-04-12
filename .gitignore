@@ -8,9 +8,10 @@ scripts_temporales/*
 # Excepto un posible .gitkeep si queremos mantener la carpeta en el repo
 !scripts_temporales/.gitkeep
 
-# Las medias de espacios de trabajo y reportes ahora son visibles para el agente
-# Topology_Workspace/*
-# Topology_Reports/*
+# Topology_Reports: solo conservar el template base y .gitkeep
+Topology_Reports/*
+!Topology_Reports/.gitkeep
+!Topology_Reports/Topology_IP.xlsx
 
 # Scripts de sesiones anteriores
 config_vpcs.js
@@ -34,5 +35,4 @@ test_core.js
 # Imágenes grandes y artefactos de sesiones de test
 *.jpeg
 *.png
-Topology_Reports/convergence_results.json
 Examen_Analisis.jpeg
