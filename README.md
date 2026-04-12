@@ -7,11 +7,12 @@
 ## ✨ Características Principales
 
 *   **🎨 Diseño Topológico Autónomo:** Genera nodos y enlaces físicos en GNS3 a partir de diagramas visuales o descripciones en lenguaje natural respetando el etiquetado IP estricto.
-*   **⚡ Zero-Touch Provisioning (ZTP):** Configuración automática de direccionamiento IP en VPCs y Routers Cisco (IOS).
+*   **⚡ Zero-Touch Provisioning (ZTP):** Configuración automática de direccionamiento IP en VPCs y Routers Cisco (IOS) con Smart Boot Polling.
 *   **🛣️ Enrutamiento Dinámico Inteligente:** Implementación automática de protocolos de enrutamiento estático robusto y dinámico (RIPv2).
 *   **🏷️ Documentación Visual Dinámica:** Generación de etiquetas y decoraciones SVG en el lienzo de GNS3 para una topología profesional y legible.
-*   **🏥 Health Check End-to-End:** El Agente posee la capacidad de ejecutar auditorías automáticas descubriendo hosts encendidos, realizando Pings P2P paralelos y confirmando la convergencia total.
-*   **🛡️ Autocuración y Estabilidad (Anti-Crashes):** Lógica integrada de "Polling Estricto Dinámico" para interactuar suavemente con Dynamips evitando corrupciones del servidor GNS3 durante limpiezas.
+*   **🏥 Health Check End-to-End:** Auditorías automáticas descubriendo hosts encendidos, realizando Pings P2P y confirmando la convergencia total.
+*   **🛡️ Autocuración y Estabilidad (Anti-Crashes):** Lógica de Polling Estricto Dinámico para interactuar con Dynamips, anti-race conditions en Telnet, y detección de errores IOS.
+*   **🔍 Diagnóstico Inteligente:** Captura completa de la salida del router en cada configuración, con detección automática de errores de IOS (`% Invalid`, `% Ambiguous`).
 
 ---
 
@@ -25,8 +26,10 @@ GNS3-AI-Architect/
 ├── Topology_Workspace/   # Directorio DEDICADO para arrastrar Imágenes/PDFs a analizar
 ├── scripts_temporales/   # Scripts volátiles generados por la IA (Borrado Automático)
 ├── Topology_Reports/     # Reportes auto-generados POST-Despliegue (.xlsx / .md)
-├── index.js              # El núcleo del Servidor MCP / GNS3
-└── run_mcp_tool.js       # Cliente de Terminal para Simulaciones y Health Checks
+├── index.js              # El núcleo del Servidor MCP / GNS3 (v3.0.0)
+├── health_check.js       # Auditoría de conectividad End-to-End independiente
+├── run_mcp_tool.js       # Cliente de Terminal para pruebas manuales de herramientas MCP
+└── mcp.example.json      # Template de configuración MCP (ejemplo para referencia)
 ```
 
 ---
@@ -43,7 +46,7 @@ GNS3-AI-Architect/
 
 1.  **Clona este repositorio:**
     ```bash
-    git clone https://github.com/TU_USUARIO/GNS3-AI-Architect.git
+    git clone https://github.com/GaeloCanelo/GNS3-AI-Architect.git
     cd GNS3-AI-Architect
     ```
 
@@ -56,6 +59,7 @@ GNS3-AI-Architect/
     ```bash
     gemini mcp add agente-gns3 node index.js
     ```
+    *Esto crea la configuración en `.gemini/settings.json` automáticamente. El archivo `mcp.example.json` se proporciona solo como referencia.*
 
 4.  **Desactiva la contraseña en GNS3:**
     Ve a `Edit -> Preferences -> Server` y desmarca `Protect server with password`.
