@@ -1,4 +1,4 @@
-# Skill: Diseñador y Configurador de Redes GNS3 (MCP) — v3.0.0
+# Skill: Diseñador y Configurador de Redes GNS3 (MCP) — v3.1.0
 
 Este documento describe las directrices, estándares y lecciones aprendidas para que un Agente de IA pueda diseñar, configurar y validar topologías de red en GNS3.
 
@@ -18,9 +18,13 @@ Este documento describe las directrices, estándares y lecciones aprendidas para
 
 ### Configuración y Diagnóstico
 *   `configurar_vpc`: Configuración IP rápida para nodos terminales (VPCS) via Telnet.
-*   `configurar_router_cisco`: Envío de ráfagas de comandos IOS via Telnet. **Captura y devuelve la salida completa del router**, incluyendo detección de errores IOS (`% Invalid`, `% Ambiguous`).
-*   `verificar_conectividad`: Ejecuta pings inteligentes desde VPCs o Routers, diferenciando automáticamente la sintaxis según el tipo de nodo.
-*   `exportar_configuraciones`: Extrae el `running-config` de un router Cisco. Entra automáticamente en modo `enable`.
+*   `configurar_router_cisco`: Envío de ráfagas de comandos IOS via Telnet con **Active Prompt Polling** (v3.1.0). Espera activamente al prompt IOS enviando Enter cada 3s, detecta y responde automáticamente al Bootstrap dialog (`no`), y **verifica post-ejecución** que los comandos fueron procesados.
+*   `verificar_conectividad`: Ejecuta pings inteligentes con **drain de buffer** previo (v3.1.0) para evitar falsos negativos por datos residuales.
+*   `exportar_configuraciones`: Extrae el `running-config` de un router Cisco. Envía `end` antes de `enable` para salir de cualquier modo config previo.
+
+### Reportes y Backup (Nuevo en v3.1.0)
+*   `generar_reporte_excel`: Genera un archivo Excel profesional con 3 hojas (WAN, LAN, Resumen), merges, colores y formato idéntico al template base `Topology_IP.xlsx`.
+*   `generar_backup_comandos`: Genera un archivo Markdown con los comandos ejecutados en cada dispositivo, organizado por secciones. Permite re-configuración manual por copy-paste directo en consola.
 
 ---
 
@@ -29,7 +33,10 @@ Este documento describe las directrices, estándares y lecciones aprendidas para
 *   **Respaldo y Documentación:** Tras configurar una red, utiliza `exportar_configuraciones` para extraer los `running-config` de los routers. Esto permite proveer un reporte técnico completo y facilita la replicación de la topología.
 *   **Gestión de Topologías:** Antes de realizar cambios, utiliza `obtener_nodos_proyecto` y `obtener_enlaces_proyecto` para entender el estado actual de la red y evitar conflictos de direccionamiento o puertos.
 *   **Creación Autónoma:** Si el usuario solicita un entorno nuevo, utiliza `crear_proyecto` para establecer el ID de proyecto antes de proceder con el despliegue de nodos.
-*   **Smart Boot Polling:** El servidor realiza polling TCP activo al puerto de consola de los nodos al encenderlos, esperando hasta 45 segundos para routers Cisco. Solo procede cuando la consola está realmente lista.
+*   **Smart Boot Polling:** El servidor realiza polling TCP activo al puerto de consola de los nodos al encenderlos, esperando hasta 45 segundos para routers Cisco.
+*   **Active Prompt Polling (v3.1.0):** Después del boot polling TCP, `configurar_router_cisco` envía `\r\n` cada 3 segundos (como presionar Enter repetidamente) mientras monitorea el buffer. Detecta automáticamente el prompt IOS o el Bootstrap dialog y responde `no`. Timeout máximo de 60s. Esto elimina el problema de envío prematuro de comandos durante la descompresión de imagen IOS.
+*   **Verificación Post-Ejecución (v3.1.0):** `configurar_router_cisco` analiza el output capturado y emite un WARNING si no detecta evidencia de que los comandos fueron procesados por IOS.
+*   **Buffer Drain (v3.1.0):** `verificar_conectividad` descarta automáticamente el buffer residual de la consola Telnet antes de ejecutar el ping, evitando falsos negativos.
 
 ---
 
@@ -44,7 +51,7 @@ Este documento describe las directrices, estándares y lecciones aprendidas para
 Reglas críticas para automatización efectiva:
 
 ### A. Gestión del Primer Inicio (Bootstrap)
-Los routers nuevos inician en el "System Configuration Dialog". Se DEBE enviar el comando `no` antes de la ráfaga de configuración para acceder al prompt real. **El agente debe incluir `no` como primer comando** en la ráfaga de `configurar_router_cisco` cuando el router es nuevo o se ha reseteado.
+Los routers nuevos inician en el "System Configuration Dialog". A partir de v3.1.0, **el servidor detecta y responde automáticamente** este diálogo con `no`. El agente **NO necesita** incluir `no` como primer comando ya que el Active Prompt Polling lo maneja internamente.
 
 ### B. Secuencia de Comandos Obligatoria
 1.  `enable`: Entrar en modo privilegiado (Prompt `#`).
@@ -52,8 +59,8 @@ Los routers nuevos inician en el "System Configuration Dialog". Se DEBE enviar e
 3.  `no ip domain-lookup`: Evita bloqueos por búsqueda de DNS en comandos fallidos.
 4.  **Estabilización de Enlace:** Forzar `duplex full` y `speed 100` en interfaces FastEthernet para evitar descartes de paquetes.
 
-### C. Verificación de Errores (Nuevo en v3.0.0)
-El servidor ahora captura la salida completa del router y detecta patrones de error de IOS como `% Invalid input`, `% Ambiguous command`. Si se detectan errores, se incluyen como advertencias en la respuesta. **Siempre revisa la salida del router** para confirmar que los comandos fueron aceptados.
+### C. Verificación de Errores (Mejorado en v3.1.0)
+El servidor captura la salida completa del router y detecta patrones de error de IOS como `% Invalid input`, `% Ambiguous command`. Además, verifica que el output contenga evidencia real de ejecución (prompt `(config)#` o `Building configuration`). Si los comandos fueron enviados durante el arranque del IOS, emite un 🚨 **WARNING** explícito.
 
 ---
 
@@ -68,10 +75,11 @@ El servidor ahora captura la salida completa del router y detecta patrones de er
 Una vez que el Agente despliega una topología y la valida como puramente funcional (ej. tras un Health Check End-to-End exitoso), es OBLIGATORIO generar y almacenar dos reportes detallados en la carpeta `Topology_Reports/`.
 
 ### Reglas Estrictas de Generación:
-1.  **Formato Dual:** Se DEBEN generar siempre ambos archivos de forma paralela: un `.xlsx` (mediante scripts) y un `.md`.
-2.  **Convención de Nombres (Crítico):** Los archivos deben heredar obligatoriamente el nombre del proyecto GNS3 activo. Por ejemplo, si el proyecto se llama `Prueba_Agente`, los reportes deben llamarse `Topology_Prueba_Agente_IP.xlsx` y `Topology_Prueba_Agente_IP.md`. No uses nombres genéricos.
-3.  **Fidelidad al Molde (Template):** La tabla de direccionamiento y el desglose generado en el documento Excel **debe imitar exactamente las columnas, diseño y estilo visual** del archivo ejemplo `Topology_IP.xlsx` proporcionado por el usuario previamente. No omitas propiedades.
-4.  **Contenido Mandatorio:**
+1.  **Herramienta MCP Oficial:** Utilizar siempre `generar_reporte_excel` del MCP Server para generar el `.xlsx`. Esta herramienta replica exactamente la estructura del template base (3 hojas, merges, emojis, colores).
+2.  **Backup de Comandos:** Utilizar `generar_backup_comandos` para generar un `.md` con los comandos ejecutados en cada dispositivo, permitiendo re-configuración manual.
+3.  **Convención de Nombres (Crítico):** Los archivos deben heredar obligatoriamente el nombre del proyecto GNS3 activo. Por ejemplo, si el proyecto se llama `Prueba_Agente`, los reportes deben llamarse `Topology_Prueba_Agente_IP.xlsx` y `Backup_Comandos_Prueba_Agente.md`. No uses nombres genéricos.
+4.  **Fidelidad al Molde (Template):** La tabla de direccionamiento generada mediante `generar_reporte_excel` replica automáticamente el diseño del archivo ejemplo `Topology_IP.xlsx`: 3 hojas separadas (WAN, LAN, Resumen), celdas mergeadas, encabezados con color, emojis de sección.
+5.  **Contenido Mandatorio:**
     *   Tablas de Direccionamiento IP completas (Interfaces, Direcciones IP, Máscaras de Subred en decimal, Gateways).
     *   Resumen de Red / Segmentación de Subredes LAN y Enlaces WAN P2P.
 
@@ -86,4 +94,4 @@ Una vez que el Agente despliega una topología y la valida como puramente funcio
 *   **Errores IOS Silenciosos:** Si `configurar_router_cisco` reporta advertencias de IOS (`% Invalid`), revisa la sintaxis del comando o verifica que la interfaz/protocolo existen en el modelo de router utilizado.
 
 ---
-*Proyecto GNS3 AI Architect — Servidor MCP v3.0.0 — Confiabilidad y eficiencia mejoradas.*
+*Proyecto GNS3 AI Architect — Servidor MCP v3.1.0 — Active Prompt Polling, Buffer Drain, Reportes Excel profesionales y Backup de comandos.*

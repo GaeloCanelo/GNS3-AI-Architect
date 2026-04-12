@@ -1,4 +1,4 @@
-# Manual Técnico: Agente de Automatización GNS3 (MCP) — v3.0.0
+# Manual Técnico: Agente de Automatización GNS3 (MCP) — v3.1.0
 
 Este manual detalla la arquitectura técnica y la lógica del servidor de Protocolo de Contexto de Modelo (MCP) diseñado para controlar GNS3 mediante IA.
 
@@ -21,12 +21,16 @@ El servidor implementa las siguientes herramientas críticas:
 *   `agregar_decoracion`: Genera elementos SVG dinámicos para etiquetas de red y áreas visuales.
 
 ### Gestión de Configuración y Diagnóstico (TCP/Telnet)
-*   **`configurar_router_cisco` (Prompt-Driven)**: Utiliza detección de prompt del router (`>` o `#`) para enviar comandos tan pronto como el dispositivo esté listo, con un fallback de 600ms si el prompt no se detecta. **Captura la salida completa del router** y detecta automáticamente errores de IOS (`% Invalid`, `% Ambiguous`, `% Incomplete`) incluyéndolos como advertencias en la respuesta.
-*   **`verificar_conectividad` (Ping Inteligente)**: Diferencia entre nodos `vpcs` y otros (Routers). Envía el comando de ping adecuado según el tipo de nodo. Utiliza regex robusta para analizar los resultados: detecta `Success rate is X percent` (Cisco IOS), `N packets received` (VPCS) y patrones de exclamación (`!!!!`).
-*   **`exportar_configuraciones` (Backup)**: Establece conexión Telnet, **entra automáticamente en modo `enable`**, ejecuta `terminal length 0` para deshabilitar la paginación en IOS, captura la salida completa del `show running-config` con detección precisa del marcador `\nend\n` y la devuelve como texto.
-*   **Smart Boot Polling:** Cuando un nodo necesita ser encendido, el servidor realiza polling TCP activo al puerto de consola (hasta 45s para routers, 5s para VPCS) en lugar de esperas fijas. Solo procede cuando la consola realmente acepta conexión.
-*   **Gestión del Bootstrap:** El servidor **NO** detecta automáticamente el "System Configuration Dialog" (Bootstrap) de IOS. Es responsabilidad del agente IA incluir el comando `no` como primer elemento de la ráfaga si el router es nuevo o se ha reseteado.
-*   **Anti-Race Conditions:** Todas las funciones Telnet utilizan un flag `settled` y `clearTimeout` para prevenir doble resolución de Promises y errores `UnhandledRejection`.
+*   **`configurar_router_cisco` (Active Prompt Polling — v3.1.0)**: Utiliza un ciclo activo que envía `\r\n` cada 3 segundos mientras monitorea el buffer buscando el prompt IOS (`>` o `#`). Detecta automáticamente el Bootstrap dialog (`Would you like to enter the initial configuration dialog?`) y responde `no`. Timeout máximo de 60s para la detección inicial del prompt (antes era 3s). Tras la ejecución, **verifica semánticamente** que el output contenga evidencia de procesamiento (`(config)#` o `Building configuration`) y emite un WARNING explícito si no.
+*   **`verificar_conectividad` (Buffer Drain — v3.1.0)**: Conecta al puerto Telnet, envía `\r\n`, espera 800ms descartando todo el buffer residual de sesiones anteriores, y recién entonces envía el comando de ping. Esto elimina falsos negativos causados por datos anteriores en el buffer. Detección de éxito mejorada: además de `Success rate`, `packets received` y `!`, ahora detecta `bytes from` como indicador de respuesta ICMP.
+*   **`exportar_configuraciones` (Safe Mode Exit — v3.1.0)**: Envía `end` antes de `enable` para salir de cualquier modo config/subconfig previo. Luego ejecuta `terminal length 0` y `show running-config` con detección precisa del marcador `\nend\n`.
+*   **Smart Boot Polling:** Polling TCP activo al puerto de consola (hasta 45s para routers, 5s para VPCS).
+*   **Active Bootstrap Detection (v3.1.0):** El servidor **detecta y responde automáticamente** el "System Configuration Dialog" de IOS. El agente IA ya NO necesita incluir `no` como primer comando.
+*   **Anti-Race Conditions:** Todas las funciones Telnet utilizan un flag `settled`, `cleanupInterval` y `clearTimeout` para prevenir doble resolución de Promises y errores `UnhandledRejection`.
+
+### Reportes y Backup (Nuevo en v3.1.0)
+*   **`generar_reporte_excel`**: Genera un archivo Excel profesional usando `exceljs`. Crea 3 hojas (WAN - Entre Routers, LAN - Routers a PCs, Resumen de Red) con celdas mergeadas, colores corporativos (azul oscuro), fuentes bold, emojis de sección (🔗 / 🖥️), y columnas con ancho ajustado. Recibe los datos como parámetros JSON estructurados.
+*   **`generar_backup_comandos`**: Genera un archivo Markdown con los comandos de configuración ejecutados en cada dispositivo, organizados por secciones con bloques de código. Incluye instrucciones para re-configuración manual por copy-paste.
 
 ## 3. Componente de Health Check (`health_check.js`)
 Script independiente que ejecuta auditorías de conectividad End-to-End:
@@ -44,6 +48,8 @@ Es fundamental que el Agente Gemini utilice únicamente las herramientas MCP:
 ## 5. Dependencias Técnicas
 *   `@modelcontextprotocol/sdk`: Framework para la comunicación con Gemini.
 *   `net`: Módulo nativo de Node.js para comunicaciones TCP (Telnet).
+*   `fs` / `path`: Módulos nativos para escritura de archivos de reportes y backup.
+*   `exceljs`: Generación de archivos Excel profesionales con formato rico.
 *   `fetch`: Para interactuar con la API REST de GNS3 de forma asíncrona.
 
 ## 6. Estructura del Repositorio
@@ -56,3 +62,4 @@ Para mantener el directorio limpio y organizado, se han designado carpetas espec
 |---------|---------|
 | v2.9.0  | Herramientas de diagnóstico y respaldo: `verificar_conectividad`, `exportar_configuraciones` |
 | v3.0.0  | Anti-race conditions en Telnet, prompt-driven delays, captura de output con detección de errores IOS, smart boot polling, `enable` automático en exports, regex robusta para pings, devolución de IDs en respuestas |
+| v3.1.0  | **Active Prompt Polling** (Enter cada 3s + Bootstrap auto-`no` + timeout 60s), **Buffer Drain** en ping, verificación post-ejecución de comandos, safe mode exit en exports (`end` antes de `enable`), detección de `bytes from` para ICMP, auto-open de proyectos, `generar_reporte_excel` (3 hojas profesionales), `generar_backup_comandos` (backup copy-paste) |

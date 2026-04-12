@@ -8,14 +8,9 @@ scripts_temporales/*
 # Excepto un posible .gitkeep si queremos mantener la carpeta en el repo
 !scripts_temporales/.gitkeep
 
-# Ignorar las medias de espacios de trabajo
-Topology_Workspace/*
-!Topology_Workspace/.gitkeep
-
-# Ignorar los reportes de topologías
-Topology_Reports/*
-!Topology_Reports/.gitkeep
-!Topology_Reports/Topology_IP.xlsx
+# Las medias de espacios de trabajo y reportes ahora son visibles para el agente
+# Topology_Workspace/*
+# Topology_Reports/*
 
 # Scripts de sesiones anteriores
 config_vpcs.js

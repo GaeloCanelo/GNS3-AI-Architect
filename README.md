@@ -7,12 +7,13 @@
 ## ✨ Características Principales
 
 *   **🎨 Diseño Topológico Autónomo:** Genera nodos y enlaces físicos en GNS3 a partir de diagramas visuales o descripciones en lenguaje natural respetando el etiquetado IP estricto.
-*   **⚡ Zero-Touch Provisioning (ZTP):** Configuración automática de direccionamiento IP en VPCs y Routers Cisco (IOS) con Smart Boot Polling.
+*   **⚡ Zero-Touch Provisioning (ZTP):** Configuración automática de direccionamiento IP en VPCs y Routers Cisco (IOS) con **Active Prompt Polling** — espera inteligente al boot de IOS enviando Enter cada 3s y detectando el Bootstrap dialog automáticamente.
 *   **🛣️ Enrutamiento Dinámico Inteligente:** Implementación automática de protocolos de enrutamiento estático robusto y dinámico (RIPv2).
 *   **🏷️ Documentación Visual Dinámica:** Generación de etiquetas y decoraciones SVG en el lienzo de GNS3 para una topología profesional y legible.
 *   **🏥 Health Check End-to-End:** Auditorías automáticas descubriendo hosts encendidos, realizando Pings P2P y confirmando la convergencia total.
 *   **🛡️ Autocuración y Estabilidad (Anti-Crashes):** Lógica de Polling Estricto Dinámico para interactuar con Dynamips, anti-race conditions en Telnet, y detección de errores IOS.
-*   **🔍 Diagnóstico Inteligente:** Captura completa de la salida del router en cada configuración, con detección automática de errores de IOS (`% Invalid`, `% Ambiguous`).
+*   **🔍 Diagnóstico Inteligente:** Captura completa de la salida del router con verificación post-ejecución que advierte si los comandos no fueron procesados.
+*   **📊 Reportes Profesionales (v3.1.0):** Generación automática de Excel con 3 hojas profesionales (WAN/LAN/Resumen) y backup de comandos por dispositivo.
 
 ---
 
@@ -26,7 +27,7 @@ GNS3-AI-Architect/
 ├── Topology_Workspace/   # Directorio DEDICADO para arrastrar Imágenes/PDFs a analizar
 ├── scripts_temporales/   # Scripts volátiles generados por la IA (Borrado Automático)
 ├── Topology_Reports/     # Reportes auto-generados POST-Despliegue (.xlsx / .md)
-├── index.js              # El núcleo del Servidor MCP / GNS3 (v3.0.0)
+├── index.js              # El núcleo del Servidor MCP / GNS3 (v3.1.0)
 ├── health_check.js       # Auditoría de conectividad End-to-End independiente
 ├── run_mcp_tool.js       # Cliente de Terminal para pruebas manuales de herramientas MCP
 └── mcp.example.json      # Template de configuración MCP (ejemplo para referencia)

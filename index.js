@@ -2,6 +2,9 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import net from "net";
+import fs from "fs";
+import path from "path";
+import ExcelJS from "exceljs";
 
 const GNS3_BASE_URL = "http://127.0.0.1:3080/v2";
 
@@ -29,7 +32,7 @@ async function waitForConsole(port, host = "127.0.0.1", maxWaitMs = 45000) {
 }
 
 const server = new Server(
-  { name: "gns3-topology-agent", version: "3.0.0" },
+  { name: "gns3-topology-agent", version: "3.1.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -189,6 +192,63 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             node_id: { type: "string" }
           },
           required: ["project_id", "node_id"]
+        }
+      },
+      {
+        name: "generar_reporte_excel",
+        description: "Genera un reporte Excel profesional con el plan de direccionamiento IP. Crea 3 hojas: WAN (entre routers), LAN (routers a PCs) y Resumen de Red, con formato idéntico al template base.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_name: { type: "string", description: "Nombre del proyecto para el título" },
+            wan_subtitle: { type: "string", description: "Subtítulo de la sección WAN, ej: 'ENLACES WAN (Entre Routers) — Máscara /30 (255.255.255.252)'" },
+            wan_links: {
+              type: "array", description: "Enlaces WAN punto a punto",
+              items: { type: "object", properties: {
+                subred: { type: "string" }, ip_red: { type: "string" }, mascara: { type: "string" },
+                router1: { type: "string", description: "Ej: R1 (Fa0/0)" }, ip_router1: { type: "string" },
+                router2: { type: "string", description: "Ej: R2 (Fa1/0)" }, ip_router2: { type: "string" },
+                broadcast: { type: "string" }
+              }}
+            },
+            lan_subtitle: { type: "string", description: "Subtítulo de la sección LAN" },
+            lan_links: {
+              type: "array", description: "Enlaces LAN (router a PCs)",
+              items: { type: "object", properties: {
+                subred: { type: "string" }, ip_red: { type: "string" }, mascara: { type: "string" },
+                gateway: { type: "string", description: "Ej: R1 (Fa2/0)" }, ip_gateway: { type: "string" },
+                ip_vpcs: { type: "string", description: "Ej: PC1 → 200.1.1.2" }, broadcast: { type: "string" }
+              }}
+            },
+            resumen: {
+              type: "array", description: "Filas del resumen general",
+              items: { type: "object", properties: {
+                parametro: { type: "string" }, detalle: { type: "string" }
+              }}
+            },
+            output_path: { type: "string", description: "Ruta completa del archivo de salida (.xlsx)" }
+          },
+          required: ["project_name", "wan_links", "lan_links", "resumen", "output_path"]
+        }
+      },
+      {
+        name: "generar_backup_comandos",
+        description: "Genera un archivo Markdown de backup con los comandos de configuración ejecutados en cada dispositivo. Permite re-configuración manual por copy-paste.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_name: { type: "string", description: "Nombre del proyecto" },
+            devices: {
+              type: "array",
+              items: { type: "object", properties: {
+                name: { type: "string", description: "Nombre del dispositivo (R1, PC1, etc.)" },
+                device_type: { type: "string", description: "Tipo: router, vpc, switch" },
+                commands: { type: "array", items: { type: "string" }, description: "Comandos ejecutados en orden" }
+              }, required: ["name", "commands"]}
+            },
+            output_path: { type: "string", description: "Ruta completa del archivo de salida (.md)" }
+          },
+          required: ["project_name", "devices", "output_path"]
         }
       }
     ]
@@ -388,7 +448,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const consolePort = node.console;
       const host = "127.0.0.1";
 
-      // B2: Captura completa del buffer + detección de prompt para envío rápido
       const configResult = await new Promise((resolve, reject) => {
         let settled = false;
         let output = "";
@@ -398,11 +457,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           socket.write('\r\n');
         });
 
-        // A1: Prompt-driven — enviar siguiente comando cuando el prompt aparezca
         const promptPattern = /[>#]\s*$/;
-        const iosErrorPattern = /% (Invalid|Ambiguous|Incomplete|Unknown)/i;
+        const bootstrapPattern = /Would you like to enter the initial configuration dialog/i;
         let sendScheduled = false;
         let initialWaitDone = false;
+        let bootstrapAnswered = false;
+        let enterInterval = null;
+
+        // BUG-1: Active Prompt Polling — enviar Enter cada 3s como se haría manualmente
+        enterInterval = setInterval(() => {
+          if (!settled && !initialWaitDone) {
+            socket.write('\r\n');
+          }
+        }, 3000);
+
+        const cleanupInterval = () => {
+          if (enterInterval) { clearInterval(enterInterval); enterInterval = null; }
+        };
 
         const trySendNext = () => {
           if (settled) return;
@@ -410,7 +481,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           if (step < args.commands.length) {
             socket.write(`${args.commands[step]}\r\n`);
             step++;
-            // Fallback: si no se detecta prompt en 600ms, enviar el siguiente de todas formas
             sendScheduled = true;
             setTimeout(() => { if (sendScheduled && !settled) trySendNext(); }, 600);
           } else {
@@ -419,14 +489,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             setTimeout(() => {
               if (!settled) {
                 settled = true;
+                cleanupInterval();
                 socket.end();
-                // B2: Incluir advertencias de errores IOS detectados
                 const iosErrors = output.match(/% .+/g) || [];
                 let result = `Comandos enviados a ${node.name} exitosamente.`;
                 if (iosErrors.length > 0) {
                   result += `\n⚠️ Advertencias IOS detectadas:\n${iosErrors.join('\n')}`;
                 }
-                result += `\n--- Output del Router ---\n${output.slice(-2000)}`; // Últimos 2000 chars
+                // BUG-2: Verificar que los comandos realmente se procesaron
+                const configPromptSeen = /\(config[^)]*\)#/.test(output) || output.includes('Building configuration');
+                if (!configPromptSeen) {
+                  result += '\n🚨 ADVERTENCIA: No se detectó evidencia de que los comandos hayan sido procesados por IOS. El router podría haber estado arrancando durante el envío.';
+                }
+                result += `\n--- Output del Router ---\n${output.slice(-2000)}`;
                 resolve(result);
               }
             }, 2000);
@@ -436,36 +511,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         socket.on('data', (data) => {
           output += data.toString();
           if (!initialWaitDone) {
-            // Esperar a ver un prompt antes de empezar a enviar
+            // BUG-1: Detectar Bootstrap dialog y responder automáticamente
+            if (!bootstrapAnswered && bootstrapPattern.test(output)) {
+              bootstrapAnswered = true;
+              socket.write('no\r\n');
+            }
+            // Esperar a ver un prompt real antes de enviar comandos
             if (promptPattern.test(output)) {
               initialWaitDone = true;
+              cleanupInterval();
               trySendNext();
             }
           } else if (sendScheduled && promptPattern.test(data.toString())) {
-            // Prompt detectado, enviar el siguiente comando inmediatamente
             trySendNext();
           }
         });
 
-        // Fallback: si nunca se detecta prompt inicial, empezar a enviar tras 3s
+        // BUG-1: Fallback extendido a 60s (antes era 3s) para routers c7200
         setTimeout(() => {
           if (!initialWaitDone && !settled) {
             initialWaitDone = true;
+            cleanupInterval();
             trySendNext();
           }
-        }, 3000);
+        }, 60000);
 
         socket.on('error', (err) => {
+          cleanupInterval();
           if (!settled) { settled = true; reject(new Error(`Error consola Router: ${err.message}`)); }
         });
+        // Timeout total extendido a 90s para contemplar boot + configuración
         const timeoutHandle = setTimeout(() => {
           if (!settled) {
             settled = true;
+            cleanupInterval();
             socket.destroy();
-            reject(new Error(`Timeout (30s) configurando ${node.name}. Output parcial:\n${output.slice(-500)}`));
+            reject(new Error(`Timeout (90s) configurando ${node.name}. Output parcial:\n${output.slice(-500)}`));
           }
-        }, 30000);
-        socket.on('close', () => clearTimeout(timeoutHandle));
+        }, 90000);
+        socket.on('close', () => { clearTimeout(timeoutHandle); cleanupInterval(); });
       });
 
       return { content: [{ type: "text", text: configResult }] };
@@ -473,7 +557,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     else if (name === "crear_proyecto") {
       const data = await fetchGNS3('/projects', 'POST', { name: args.name });
-      return { content: [{ type: "text", text: `Proyecto "${args.name}" creado con ID: ${data.project_id}` }] };
+      // BUG-6: Abrir el proyecto automáticamente en GNS3 GUI
+      try { await fetchGNS3(`/projects/${data.project_id}/open`, 'POST'); } catch (e) { /* ya abierto */ }
+      return { content: [{ type: "text", text: `Proyecto "${args.name}" creado y abierto. ID: ${data.project_id}` }] };
     }
 
     else if (name === "obtener_nodos_proyecto") {
@@ -503,17 +589,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       const pingResult = await new Promise((resolve, reject) => {
         let settled = false;
+        let drainDone = false;
         const socket = net.createConnection(consolePort, "127.0.0.1", () => {
+          // BUG-3: Enviar Enter para despertar la consola
           socket.write('\r\n');
-          setTimeout(() => {
-            if (settled) return;
-            const cmd = node.node_type === "vpcs" ? `ping ${args.destination_ip} -c ${count}\r\n` : `ping ${args.destination_ip} repeat ${count}\r\n`;
-            socket.write(cmd);
-          }, 1000);
         });
 
         let output = "";
         socket.on('data', (data) => {
+          if (!drainDone) return; // BUG-3: Descartar buffer residual
           output += data.toString();
           if (output.includes("Success rate") || output.includes("packets received") || output.includes("timeout")) {
             if (!settled) {
@@ -523,19 +607,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         });
 
+        // BUG-3: Tras 800ms de drain, enviar el ping real
+        setTimeout(() => {
+          if (settled) return;
+          drainDone = true;
+          output = "";
+          const cmd = node.node_type === "vpcs" ? `ping ${args.destination_ip} -c ${count}\r\n` : `ping ${args.destination_ip} repeat ${count}\r\n`;
+          socket.write(cmd);
+        }, 800);
+
         socket.on('error', (err) => {
           if (!settled) { settled = true; reject(new Error(`Error Telnet Ping: ${err.message}`)); }
         });
         const timeoutHandle = setTimeout(() => {
           if (!settled) { settled = true; socket.destroy(); resolve(output || "Timeout esperando respuesta del ping."); }
-        }, 15000 + (count * 2000)); // Timeout dinámico según cantidad de pings
+        }, 15000 + (count * 2000));
         socket.on('close', () => clearTimeout(timeoutHandle));
       });
 
-      // A4: Regex robusta para detección de éxito de ping
+      // BUG-5: Detección mejorada de éxito ICMP
       const ciscoSuccess = pingResult.match(/Success rate is (\d+) percent/);
       const vpcsReceived = pingResult.match(/(\d+)\s+packets?\s+received/i);
       const exclamations = (pingResult.match(/!/g) || []).length;
+      const icmpReplies = (pingResult.match(/bytes from/g) || []).length;
 
       let success = false;
       if (ciscoSuccess) {
@@ -543,6 +637,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       } else if (vpcsReceived) {
         success = parseInt(vpcsReceived[1]) > 0;
       } else if (exclamations >= 1) {
+        success = true;
+      } else if (icmpReplies >= 1) {
         success = true;
       }
       const status = success ? "EXITO" : "FALLO";
@@ -559,21 +655,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         let output = "";
 
         const socket = net.createConnection(node.console, "127.0.0.1", () => {
-          // B3: Enviar enable primero para asegurar modo privilegiado
-          socket.write('\r\nenable\r\n');
+          // BUG-4: Enviar 'end' primero para salir de cualquier modo config/subconfig
+          socket.write('\r\nend\r\n');
           setTimeout(() => {
             if (settled) return;
-            socket.write('terminal length 0\r\n'); // Evitar paginación --More--
+            socket.write('enable\r\n');
             setTimeout(() => {
               if (settled) return;
-              socket.write('show running-config\r\n');
-            }, 1000);
-          }, 1500);
+              socket.write('terminal length 0\r\n');
+              setTimeout(() => {
+                if (settled) return;
+                socket.write('show running-config\r\n');
+              }, 1000);
+            }, 1500);
+          }, 1000);
         });
 
         socket.on('data', (data) => {
           output += data.toString();
-          // B4: Detección precisa del fin de running-config de IOS
           if (/\r?\nend\r?\n/.test(output) && output.split('\n').length > 10) {
             if (!settled) {
               settled = true;
@@ -592,6 +691,118 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       });
 
       return { content: [{ type: "text", text: `Configuración de ${node.name}:\n${configResult}` }] };
+    }
+
+    // ─── BUG-8: Generador de Reporte Excel Profesional ───
+    else if (name === "generar_reporte_excel") {
+      const workbook = new ExcelJS.Workbook();
+      const titulo = `PLAN DE DIRECCIONAMIENTO IP — ${args.project_name.toUpperCase()}`;
+
+      // Estilos comunes
+      const titleFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D2137' } };
+      const subtitleFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A3A5C' } };
+      const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } };
+      const titleFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 14 };
+      const subtitleFont = { bold: true, color: { argb: 'FFB0C4DE' }, size: 11 };
+      const headerFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+      const dataFont = { size: 10 };
+      const center = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      const border = {
+        top: { style: 'thin' }, bottom: { style: 'thin' },
+        left: { style: 'thin' }, right: { style: 'thin' }
+      };
+
+      // === HOJA 1: WAN ===
+      const wsWAN = workbook.addWorksheet('WAN - Entre Routers');
+      wsWAN.mergeCells('A1:H1');
+      Object.assign(wsWAN.getCell('A1'), { value: titulo, font: titleFont, fill: titleFill, alignment: center });
+      wsWAN.mergeCells('A2:H2');
+      Object.assign(wsWAN.getCell('A2'), { value: `\ud83d\udd17  ${args.wan_subtitle || 'ENLACES WAN (Entre Routers)'}`, font: subtitleFont, fill: subtitleFill, alignment: center });
+
+      const wanHeaders = ['Subred', 'IP de Red', 'M\u00e1scara', 'Router 1\n(Interfaz)', 'IP Router 1', 'Router 2\n(Interfaz)', 'IP Router 2', 'Broadcast'];
+      const wanHR = wsWAN.getRow(4);
+      wanHeaders.forEach((h, i) => {
+        const c = wanHR.getCell(i + 1);
+        Object.assign(c, { value: h, font: headerFont, fill: headerFill, alignment: center, border });
+      });
+      (args.wan_links || []).forEach((link, i) => {
+        const row = wsWAN.getRow(5 + i);
+        [link.subred, link.ip_red, link.mascara, link.router1, link.ip_router1, link.router2, link.ip_router2, link.broadcast].forEach((v, j) => {
+          const c = row.getCell(j + 1);
+          Object.assign(c, { value: v, font: dataFont, alignment: center, border });
+        });
+      });
+      wsWAN.columns = [{ width: 18 }, { width: 14 }, { width: 18 }, { width: 18 }, { width: 14 }, { width: 18 }, { width: 14 }, { width: 14 }];
+
+      // === HOJA 2: LAN ===
+      const wsLAN = workbook.addWorksheet('LAN - Routers a PCs');
+      wsLAN.mergeCells('A1:G1');
+      Object.assign(wsLAN.getCell('A1'), { value: titulo, font: titleFont, fill: titleFill, alignment: center });
+      wsLAN.mergeCells('A2:G2');
+      Object.assign(wsLAN.getCell('A2'), { value: `\ud83d\udda5\ufe0f  ${args.lan_subtitle || 'ENLACES LAN (Routers a PCs)'}`, font: subtitleFont, fill: subtitleFill, alignment: center });
+
+      const lanHeaders = ['Subred', 'IP de Red', 'M\u00e1scara', 'Gateway / Router\n(Interfaz)', 'IP Gateway', 'IP VPCS', 'Broadcast'];
+      const lanHR = wsLAN.getRow(4);
+      lanHeaders.forEach((h, i) => {
+        const c = lanHR.getCell(i + 1);
+        Object.assign(c, { value: h, font: headerFont, fill: headerFill, alignment: center, border });
+      });
+      (args.lan_links || []).forEach((link, i) => {
+        const row = wsLAN.getRow(5 + i);
+        [link.subred, link.ip_red, link.mascara, link.gateway, link.ip_gateway, link.ip_vpcs, link.broadcast].forEach((v, j) => {
+          const c = row.getCell(j + 1);
+          Object.assign(c, { value: v, font: dataFont, alignment: center, border });
+        });
+      });
+      wsLAN.columns = [{ width: 18 }, { width: 14 }, { width: 18 }, { width: 22 }, { width: 14 }, { width: 20 }, { width: 14 }];
+
+      // === HOJA 3: RESUMEN ===
+      const wsRes = workbook.addWorksheet('Resumen de Red');
+      wsRes.mergeCells('A1:D1');
+      Object.assign(wsRes.getCell('A1'), { value: 'RESUMEN GENERAL DE LA TOPOLOG\u00cdA', font: titleFont, fill: titleFill, alignment: center });
+
+      Object.assign(wsRes.getCell('A3'), { value: 'Par\u00e1metro', font: headerFont, fill: headerFill, alignment: center, border });
+      wsRes.mergeCells('B3:D3');
+      Object.assign(wsRes.getCell('B3'), { value: 'Detalle', font: headerFont, fill: headerFill, alignment: center, border });
+
+      (args.resumen || []).forEach((item, i) => {
+        const rn = 4 + i;
+        Object.assign(wsRes.getCell(`A${rn}`), { value: item.parametro, font: { bold: true, size: 10 }, alignment: { vertical: 'middle', wrapText: true }, border });
+        wsRes.mergeCells(`B${rn}:D${rn}`);
+        Object.assign(wsRes.getCell(`B${rn}`), { value: item.detalle, font: dataFont, alignment: { vertical: 'middle', wrapText: true }, border });
+      });
+      wsRes.columns = [{ width: 28 }, { width: 22 }, { width: 22 }, { width: 22 }];
+
+      // Escribir archivo
+      const outputDir = path.dirname(args.output_path);
+      if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+      await workbook.xlsx.writeFile(args.output_path);
+
+      return { content: [{ type: "text", text: `Reporte Excel generado: ${args.output_path}\nHojas: WAN - Entre Routers, LAN - Routers a PCs, Resumen de Red` }] };
+    }
+
+    // ─── BUG-9: Generador de Backup de Comandos ───
+    else if (name === "generar_backup_comandos") {
+      let content = `# Backup de Comandos \u2014 ${args.project_name}\n`;
+      content += `> Generado autom\u00e1ticamente por GNS3 Topology Agent v3.1.0\n`;
+      content += `> Fecha: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}\n\n`;
+      content += `---\n\n`;
+      content += `> **Instrucciones:** Copie y pegue los comandos de cada secci\u00f3n directamente en la consola del dispositivo correspondiente en GNS3.\n\n`;
+
+      for (const device of args.devices) {
+        content += `## ${device.name}${device.device_type ? ` (${device.device_type})` : ''}\n`;
+        content += '```\n';
+        for (const cmd of device.commands) {
+          content += cmd + '\n';
+        }
+        content += '```\n\n';
+      }
+
+      const outputDir = path.dirname(args.output_path);
+      if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+      fs.writeFileSync(args.output_path, content, 'utf-8');
+
+      return { content: [{ type: "text", text: `Backup de comandos generado: ${args.output_path}\nDispositivos: ${args.devices.map(d => d.name).join(', ')}` }] };
     }
 
     throw new Error(`Herramienta desconocida: ${name}`);
