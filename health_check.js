@@ -78,7 +78,7 @@ async function ping(node, targetIp) {
 }
 
 async function runHealthCheck(projectId) {
-    console.log(`[Health Check] Inicando para el proyecto: ${projectId}`);
+    console.log(`[Health Check] Iniciando para el proyecto: ${projectId}`);
 
     try {
         const nodes = await fetchGNS3(`/projects/${projectId}/nodes`);
@@ -143,6 +143,20 @@ async function runHealthCheck(projectId) {
     }
 }
 
-const args = process.argv.slice(2);
-const projectId = args[0] || '3ca934e9-7d2a-4bdc-9eae-a32b1b9e9ac8'; // Default: Prueba_Agente
-runHealthCheck(projectId);
+const cliArgs = process.argv.slice(2);
+
+if (cliArgs.length === 0) {
+    console.log('[Health Check] No se proporcionó project_id. Listando proyectos disponibles...\n');
+    fetchGNS3('/projects')
+        .then(projects => {
+            if (projects.length === 0) {
+                console.log('No hay proyectos en GNS3. Crea uno primero.');
+            } else {
+                projects.forEach(p => console.log(`  - ${p.name}  →  ${p.project_id}`));
+                console.log(`\nUso: node health_check.js <project_id>`);
+            }
+        })
+        .catch(err => console.error('Error conectando a GNS3:', err.message));
+} else {
+    runHealthCheck(cliArgs[0]);
+}
