@@ -32,7 +32,7 @@ async function waitForConsole(port, host = "127.0.0.1", maxWaitMs = 45000) {
 }
 
 const server = new Server(
-  { name: "gns3-topology-agent", version: "3.1.0" },
+  { name: "gns3-topology-agent", version: "3.2.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -693,83 +693,131 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: `Configuración de ${node.name}:\n${configResult}` }] };
     }
 
-    // ─── BUG-8: Generador de Reporte Excel Profesional ───
+    // ─── Generador de Reporte Excel Profesional (v3.2.0 — Formato fidedigno al template) ───
     else if (name === "generar_reporte_excel") {
       const workbook = new ExcelJS.Workbook();
       const titulo = `PLAN DE DIRECCIONAMIENTO IP — ${args.project_name.toUpperCase()}`;
 
-      // Estilos comunes
-      const titleFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D2137' } };
-      const subtitleFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A3A5C' } };
-      const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } };
-      const titleFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 14 };
-      const subtitleFont = { bold: true, color: { argb: 'FFB0C4DE' }, size: 11 };
-      const headerFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
-      const dataFont = { size: 10 };
-      const center = { horizontal: 'center', vertical: 'middle', wrapText: true };
-      const border = {
-        top: { style: 'thin' }, bottom: { style: 'thin' },
-        left: { style: 'thin' }, right: { style: 'thin' }
+      // ── Paleta de colores EXACTA del template Topology_IP.xlsx ──
+      const COLORS = {
+        titleBg: '001F3864',       // Azul oscuro (título y headers WAN)
+        wanSubBg: '002E75B6',      // Azul medio (subtítulo WAN)
+        lanSubBg: '002E7D32',      // Verde (subtítulo y headers LAN)
+        white: '00FFFFFF',
+        zebraA: '00F5F7FA',        // Gris claro (filas impares)
+        zebraB: '00FFFFFF',        // Blanco (filas pares)
+        subred: '001F3864',        // Azul oscuro (texto col Subred)
+        ipRed: '00E65100',         // Naranja (texto col IP de Red)
+        ipRedBg: '00FFF3E0',       // Naranja claro (fondo col IP de Red)
+        ipWanBg: '00D6E4F0',      // Azul claro (fondo cols IP Router WAN)
+        ipLanBg: '00D4EDDA',      // Verde claro (fondo cols IP Gateway/VPCS LAN)
+        ipLanText: '002E7D32',    // Verde (texto IP LAN)
+        broadcast: '00C62828',     // Rojo (texto col Broadcast)
+        broadcastBg: '00FFEBEE',   // Rosa claro (fondo col Broadcast)
+        dataText: '001A1A2E',      // Gris oscuro (texto datos genéricos)
+        resParamText: '001F3864',  // Azul oscuro (texto parámetros Resumen)
+        lanDataBg: '00F1F8F1',    // Verde muy claro (fondo datos LAN)
       };
+      const A = 'Arial';
+      const ctr = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      const bdr = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
+      const mkFill = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
 
-      // === HOJA 1: WAN ===
+      // ══════════ HOJA 1: WAN ══════════
       const wsWAN = workbook.addWorksheet('WAN - Entre Routers');
+      // R1: Título
       wsWAN.mergeCells('A1:H1');
-      Object.assign(wsWAN.getCell('A1'), { value: titulo, font: titleFont, fill: titleFill, alignment: center });
+      Object.assign(wsWAN.getCell('A1'), { value: titulo, font: { name: A, bold: true, color: { argb: COLORS.white }, size: 14 }, fill: mkFill(COLORS.titleBg), alignment: ctr });
+      // R2: Subtítulo WAN (azul medio)
       wsWAN.mergeCells('A2:H2');
-      Object.assign(wsWAN.getCell('A2'), { value: `\ud83d\udd17  ${args.wan_subtitle || 'ENLACES WAN (Entre Routers)'}`, font: subtitleFont, fill: subtitleFill, alignment: center });
-
+      Object.assign(wsWAN.getCell('A2'), { value: `\ud83d\udd17  ${args.wan_subtitle || 'ENLACES WAN (Entre Routers)'}`, font: { name: A, bold: true, color: { argb: COLORS.white }, size: 11 }, fill: mkFill(COLORS.wanSubBg), alignment: ctr });
+      // R3: Vacía (separador visual como en el template)
+      // R4: Headers (azul oscuro)
       const wanHeaders = ['Subred', 'IP de Red', 'M\u00e1scara', 'Router 1\n(Interfaz)', 'IP Router 1', 'Router 2\n(Interfaz)', 'IP Router 2', 'Broadcast'];
-      const wanHR = wsWAN.getRow(4);
       wanHeaders.forEach((h, i) => {
-        const c = wanHR.getCell(i + 1);
-        Object.assign(c, { value: h, font: headerFont, fill: headerFill, alignment: center, border });
+        const c = wsWAN.getRow(4).getCell(i + 1);
+        Object.assign(c, { value: h, font: { name: A, bold: true, color: { argb: COLORS.white }, size: 10 }, fill: mkFill(COLORS.titleBg), alignment: ctr, border: bdr });
       });
+      // R5+: Datos con colores semánticos por columna
       (args.wan_links || []).forEach((link, i) => {
         const row = wsWAN.getRow(5 + i);
-        [link.subred, link.ip_red, link.mascara, link.router1, link.ip_router1, link.router2, link.ip_router2, link.broadcast].forEach((v, j) => {
+        const zebra = i % 2 === 0 ? COLORS.zebraA : COLORS.zebraB;
+        const vals = [link.subred, link.ip_red, link.mascara, link.router1, link.ip_router1, link.router2, link.ip_router2, link.broadcast];
+        vals.forEach((v, j) => {
           const c = row.getCell(j + 1);
-          Object.assign(c, { value: v, font: dataFont, alignment: center, border });
+          let font, fill;
+          if (j === 0)      { font = { name: A, bold: true, color: { argb: COLORS.subred }, size: 10 }; fill = mkFill(zebra); }
+          else if (j === 1) { font = { name: A, bold: true, color: { argb: COLORS.ipRed }, size: 10 }; fill = mkFill(COLORS.ipRedBg); }
+          else if (j === 4 || j === 6) { font = { name: A, bold: true, color: { argb: COLORS.dataText }, size: 10 }; fill = mkFill(COLORS.ipWanBg); }
+          else if (j === 7) { font = { name: A, bold: true, color: { argb: COLORS.broadcast }, size: 10 }; fill = mkFill(COLORS.broadcastBg); }
+          else              { font = { name: A, color: { argb: COLORS.dataText }, size: 10 }; fill = mkFill(zebra); }
+          Object.assign(c, { value: v, font, fill, alignment: ctr, border: bdr });
         });
       });
       wsWAN.columns = [{ width: 18 }, { width: 14 }, { width: 18 }, { width: 18 }, { width: 14 }, { width: 18 }, { width: 14 }, { width: 14 }];
 
-      // === HOJA 2: LAN ===
+      // ══════════ HOJA 2: LAN ══════════
       const wsLAN = workbook.addWorksheet('LAN - Routers a PCs');
+      // R1: Título
       wsLAN.mergeCells('A1:G1');
-      Object.assign(wsLAN.getCell('A1'), { value: titulo, font: titleFont, fill: titleFill, alignment: center });
+      Object.assign(wsLAN.getCell('A1'), { value: titulo, font: { name: A, bold: true, color: { argb: COLORS.white }, size: 14 }, fill: mkFill(COLORS.titleBg), alignment: ctr });
+      // R2: Subtítulo LAN (verde)
       wsLAN.mergeCells('A2:G2');
-      Object.assign(wsLAN.getCell('A2'), { value: `\ud83d\udda5\ufe0f  ${args.lan_subtitle || 'ENLACES LAN (Routers a PCs)'}`, font: subtitleFont, fill: subtitleFill, alignment: center });
-
+      Object.assign(wsLAN.getCell('A2'), { value: `\ud83d\udda5\ufe0f  ${args.lan_subtitle || 'ENLACES LAN (Routers a PCs)'}`, font: { name: A, bold: true, color: { argb: COLORS.white }, size: 11 }, fill: mkFill(COLORS.lanSubBg), alignment: ctr });
+      // R3: Vacía
+      // R4: Headers (verde)
       const lanHeaders = ['Subred', 'IP de Red', 'M\u00e1scara', 'Gateway / Router\n(Interfaz)', 'IP Gateway', 'IP VPCS', 'Broadcast'];
-      const lanHR = wsLAN.getRow(4);
       lanHeaders.forEach((h, i) => {
-        const c = lanHR.getCell(i + 1);
-        Object.assign(c, { value: h, font: headerFont, fill: headerFill, alignment: center, border });
+        const c = wsLAN.getRow(4).getCell(i + 1);
+        Object.assign(c, { value: h, font: { name: A, bold: true, color: { argb: COLORS.white }, size: 10 }, fill: mkFill(COLORS.lanSubBg), alignment: ctr, border: bdr });
       });
+      // R5+: Datos con colores semánticos LAN
       (args.lan_links || []).forEach((link, i) => {
         const row = wsLAN.getRow(5 + i);
-        [link.subred, link.ip_red, link.mascara, link.gateway, link.ip_gateway, link.ip_vpcs, link.broadcast].forEach((v, j) => {
+        const zebra = i % 2 === 0 ? COLORS.lanDataBg : COLORS.zebraB;
+        const vals = [link.subred, link.ip_red, link.mascara, link.gateway, link.ip_gateway, link.ip_vpcs, link.broadcast];
+        vals.forEach((v, j) => {
           const c = row.getCell(j + 1);
-          Object.assign(c, { value: v, font: dataFont, alignment: center, border });
+          let font, fill;
+          if (j === 0)      { font = { name: A, bold: true, color: { argb: COLORS.ipLanText }, size: 10 }; fill = mkFill(zebra); }
+          else if (j === 1) { font = { name: A, bold: true, color: { argb: COLORS.ipRed }, size: 10 }; fill = mkFill(COLORS.ipRedBg); }
+          else if (j === 4 || j === 5) { font = { name: A, bold: true, color: { argb: COLORS.ipLanText }, size: 10 }; fill = mkFill(COLORS.ipLanBg); }
+          else if (j === 6) { font = { name: A, bold: true, color: { argb: COLORS.broadcast }, size: 10 }; fill = mkFill(COLORS.broadcastBg); }
+          else              { font = { name: A, color: { argb: COLORS.dataText }, size: 10 }; fill = mkFill(zebra); }
+          Object.assign(c, { value: v, font, fill, alignment: ctr, border: bdr });
         });
       });
       wsLAN.columns = [{ width: 18 }, { width: 14 }, { width: 18 }, { width: 22 }, { width: 14 }, { width: 20 }, { width: 14 }];
 
-      // === HOJA 3: RESUMEN ===
+      // ══════════ HOJA 3: RESUMEN ══════════
       const wsRes = workbook.addWorksheet('Resumen de Red');
+      // R1: Título
       wsRes.mergeCells('A1:D1');
-      Object.assign(wsRes.getCell('A1'), { value: 'RESUMEN GENERAL DE LA TOPOLOG\u00cdA', font: titleFont, fill: titleFill, alignment: center });
-
-      Object.assign(wsRes.getCell('A3'), { value: 'Par\u00e1metro', font: headerFont, fill: headerFill, alignment: center, border });
+      Object.assign(wsRes.getCell('A1'), { value: 'RESUMEN GENERAL DE LA TOPOLOG\u00cdA', font: { name: A, bold: true, color: { argb: COLORS.white }, size: 14 }, fill: mkFill(COLORS.titleBg), alignment: ctr });
+      // R2: Vacía
+      // R3: Headers
+      Object.assign(wsRes.getCell('A3'), { value: 'Par\u00e1metro', font: { name: A, bold: true, color: { argb: COLORS.white }, size: 11 }, fill: mkFill(COLORS.titleBg), alignment: { horizontal: 'center', vertical: 'middle', wrapText: true }, border: bdr });
       wsRes.mergeCells('B3:D3');
-      Object.assign(wsRes.getCell('B3'), { value: 'Detalle', font: headerFont, fill: headerFill, alignment: center, border });
-
+      Object.assign(wsRes.getCell('B3'), { value: 'Detalle', font: { name: A, bold: true, color: { argb: COLORS.white }, size: 11 }, fill: mkFill(COLORS.titleBg), alignment: { horizontal: 'center', vertical: 'middle', wrapText: true }, border: bdr });
+      // R4+: Datos con zebra y colores del template
       (args.resumen || []).forEach((item, i) => {
         const rn = 4 + i;
-        Object.assign(wsRes.getCell(`A${rn}`), { value: item.parametro, font: { bold: true, size: 10 }, alignment: { vertical: 'middle', wrapText: true }, border });
+        const zebra = i % 2 === 0 ? COLORS.zebraA : COLORS.zebraB;
+        Object.assign(wsRes.getCell(`A${rn}`), {
+          value: item.parametro,
+          font: { name: A, bold: true, color: { argb: COLORS.resParamText }, size: 10 },
+          fill: mkFill(zebra),
+          alignment: { horizontal: 'left', vertical: 'middle' },
+          border: bdr
+        });
         wsRes.mergeCells(`B${rn}:D${rn}`);
-        Object.assign(wsRes.getCell(`B${rn}`), { value: item.detalle, font: dataFont, alignment: { vertical: 'middle', wrapText: true }, border });
+        Object.assign(wsRes.getCell(`B${rn}`), {
+          value: item.detalle,
+          font: { name: A, color: { argb: COLORS.dataText }, size: 10 },
+          fill: mkFill(zebra),
+          alignment: { horizontal: 'left', vertical: 'middle' },
+          border: bdr
+        });
       });
       wsRes.columns = [{ width: 28 }, { width: 22 }, { width: 22 }, { width: 22 }];
 
@@ -781,16 +829,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: `Reporte Excel generado: ${args.output_path}\nHojas: WAN - Entre Routers, LAN - Routers a PCs, Resumen de Red` }] };
     }
 
-    // ─── BUG-9: Generador de Backup de Comandos ───
+    // ─── Generador de Backup de Comandos (v3.2.0) ───
     else if (name === "generar_backup_comandos") {
-      let content = `# Backup de Comandos \u2014 ${args.project_name}\n`;
-      content += `> Generado autom\u00e1ticamente por GNS3 Topology Agent v3.1.0\n`;
+      let content = `# \ud83d\udcbe Backup de Comandos \u2014 ${args.project_name}\n`;
+      content += `> Generado autom\u00e1ticamente por GNS3 Topology Agent v3.2.0\n`;
       content += `> Fecha: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}\n\n`;
       content += `---\n\n`;
-      content += `> **Instrucciones:** Copie y pegue los comandos de cada secci\u00f3n directamente en la consola del dispositivo correspondiente en GNS3.\n\n`;
+      content += `> **Instrucciones:** Copie y pegue los comandos de cada secci\u00f3n directamente en la consola del dispositivo correspondiente en GNS3. Los comandos est\u00e1n en el orden exacto de ejecuci\u00f3n.\n\n`;
 
       for (const device of args.devices) {
-        content += `## ${device.name}${device.device_type ? ` (${device.device_type})` : ''}\n`;
+        const icon = device.device_type === 'router' ? '\ud83d\udce1' : device.device_type === 'vpc' ? '\ud83d\udcbb' : '\ud83d\udd27';
+        content += `## ${icon} ${device.name}${device.device_type ? ` (${device.device_type})` : ''}\n`;
         content += '```\n';
         for (const cmd of device.commands) {
           content += cmd + '\n';
