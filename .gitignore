@@ -30,3 +30,9 @@ debug_r3.js
 inspect_pc2.js
 reset_r3_int.js
 test_core.js
+
+# Imágenes grandes y artefactos de sesiones de test
+*.jpeg
+*.png
+Topology_Reports/convergence_results.json
+Examen_Analisis.jpeg
