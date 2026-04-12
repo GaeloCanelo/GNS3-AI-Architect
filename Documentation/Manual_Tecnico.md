@@ -1,4 +1,4 @@
-# Manual Técnico: Agente de Automatización GNS3 (MCP) — v3.1.0
+# Manual Técnico: Agente de Automatización GNS3 (MCP) — v3.2.0
 
 Este manual detalla la arquitectura técnica y la lógica del servidor de Protocolo de Contexto de Modelo (MCP) diseñado para controlar GNS3 mediante IA.
 
@@ -63,3 +63,4 @@ Para mantener el directorio limpio y organizado, se han designado carpetas espec
 | v2.9.0  | Herramientas de diagnóstico y respaldo: `verificar_conectividad`, `exportar_configuraciones` |
 | v3.0.0  | Anti-race conditions en Telnet, prompt-driven delays, captura de output con detección de errores IOS, smart boot polling, `enable` automático en exports, regex robusta para pings, devolución de IDs en respuestas |
 | v3.1.0  | **Active Prompt Polling** (Enter cada 3s + Bootstrap auto-`no` + timeout 60s), **Buffer Drain** en ping, verificación post-ejecución de comandos, safe mode exit en exports (`end` antes de `enable`), detección de `bytes from` para ICMP, auto-open de proyectos, `generar_reporte_excel` (3 hojas profesionales), `generar_backup_comandos` (backup copy-paste) |
+| v3.2.0  | **Excel con formato fidedigno** al template (colores semánticos por columna: Subred=azul, IP Red=naranja, IPs=azul/verde, Broadcast=rojo, filas zebra, font Arial), Skill.md: `enable secret` obligatorio + `service password-encryption`, nombres exactos del diagrama sin sufijos, decoraciones obligatorias con coordenadas, protocolo de comunicación visual por fases, backup con comandos IOS reales + PCs + verificación |

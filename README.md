@@ -27,7 +27,7 @@ GNS3-AI-Architect/
 ├── Topology_Workspace/   # Directorio DEDICADO para arrastrar Imágenes/PDFs a analizar
 ├── scripts_temporales/   # Scripts volátiles generados por la IA (Borrado Automático)
 ├── Topology_Reports/     # Reportes auto-generados POST-Despliegue (.xlsx / .md)
-├── index.js              # El núcleo del Servidor MCP / GNS3 (v3.1.0)
+├── index.js              # El núcleo del Servidor MCP / GNS3 (v3.2.0)
 ├── health_check.js       # Auditoría de conectividad End-to-End independiente
 ├── run_mcp_tool.js       # Cliente de Terminal para pruebas manuales de herramientas MCP
 └── mcp.example.json      # Template de configuración MCP (ejemplo para referencia)

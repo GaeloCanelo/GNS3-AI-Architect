@@ -3,9 +3,8 @@ node_modules/
 backup/
 *.bak
 
-# Ignorar archivos en la carpeta de scripts temporales
+# Scripts temporales generados por la IA
 scripts_temporales/*
-# Excepto un posible .gitkeep si queremos mantener la carpeta en el repo
 !scripts_temporales/.gitkeep
 
 # Topology_Reports: solo conservar el template base y .gitkeep
@@ -13,26 +12,16 @@ Topology_Reports/*
 !Topology_Reports/.gitkeep
 !Topology_Reports/Topology_IP.xlsx
 
-# Scripts de sesiones anteriores
-config_vpcs.js
-config_routers_ips.js
-config_routers_rip.js
+# Scripts de sesiones anteriores (wildcard para no necesitar lista manual)
+config_*.js
+check_*.js
+debug_*.js
+inspect_*.js
+reset_*.js
+test_*.js
 exit_dialog.js
 fix_duplex.js
-test_ping.js
-test_ping_pc2.js
-test_trace.js
-test_pc2_self.js
-check_router_r1.js
-check_route_r1.js
-check_route_r3.js
-debug_r1.js
-debug_r3.js
-inspect_pc2.js
-reset_r3_int.js
-test_core.js
 
 # Imágenes grandes y artefactos de sesiones de test
 *.jpeg
 *.png
-Examen_Analisis.jpeg
