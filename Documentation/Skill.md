@@ -1,96 +1,141 @@
-# Skill: Diseñador y Configurador de Redes GNS3 (MCP) — v3.2.0
+# Skill: Diseñador y Configurador de Redes GNS3 (MCP) — v3.2.1
 
-Este documento describe las directrices, estándares y lecciones aprendidas para que un Agente de IA pueda diseñar, configurar y validar topologías de red en GNS3.
-
-## 1. Herramientas del Servidor MCP
-
-### Gestión de Proyectos
-*   `obtener_proyectos`: Identificación de entornos de trabajo. Lista todos los proyectos con nombre e ID.
-*   `crear_proyecto`: Crea un nuevo proyecto en GNS3, lo abre automáticamente en la GUI y devuelve el `project_id`.
-*   `obtener_nodos_proyecto`: Devuelve el inventario completo de nodos con sus states, IDs y puertos de consola.
-*   `obtener_enlaces_proyecto`: Muestra el mapa de conexiones físicas (puerto a puerto) con Link IDs.
-*   `limpiar_proyecto`: Borra TODOS los nodos, enlaces y decoraciones de forma segura (Polling Estricto + Destrucción Secuencial).
-
-### Construcción y Diseño
-*   `agregar_dispositivo`: Creación de nodos usando plantillas de GNS3. **Devuelve el `node_id` y `console port`** del nodo creado, evitando una consulta adicional.
-*   `conectar_nodos`: Interconexión física entre dispositivos especificando adaptadores y puertos. **Devuelve el `link_id`**.
-*   `agregar_decoracion`: Etiquetado visual (SVG) de subredes y áreas. Soporta rectángulos, elipses y texto con fondo sólido. **Uso obligatorio** (ver §3).
-
-### Configuración y Diagnóstico
-*   `configurar_vpc`: Configuración IP rápida para nodos terminales (VPCS) via Telnet.
-*   `configurar_router_cisco`: Envío de ráfagas de comandos IOS via Telnet con **Active Prompt Polling**. Espera activamente al prompt IOS enviando Enter cada 3s, detecta y responde automáticamente al Bootstrap dialog (`no`), y **verifica post-ejecución** que los comandos fueron procesados.
-*   `verificar_conectividad`: Ejecuta pings inteligentes con **drain de buffer** previo para evitar falsos negativos por datos residuales.
-*   `exportar_configuraciones`: Extrae el `running-config` de un router Cisco. Envía `end` antes de `enable` para salir de cualquier modo config previo.
-
-### Reportes y Backup
-*   `generar_reporte_excel`: Genera un archivo Excel profesional con 3 hojas (WAN, LAN, Resumen), colores semánticos por columna, filas zebra y formato **idéntico** al template base `Topology_IP.xlsx`.
-*   `generar_backup_comandos`: Genera un archivo Markdown con los comandos ejecutados en cada dispositivo. Los comandos deben ser **IOS/VPCS válidos** para copy-paste directo.
+Este documento describe las directrices, estándares y lecciones aprendidas para que un Agente de IA pueda diseñar, configurar y validar topologías de red en GNS3. **Léelo COMPLETO antes de ejecutar cualquier acción.**
 
 ---
 
-## 2. Capacidades Internas del Servidor
-*   **Smart Boot Polling:** Polling TCP activo al puerto de consola (hasta 45s para routers, 5s para VPCS).
-*   **Active Prompt Polling:** Envía `\r\n` cada 3s durante el boot, detecta Bootstrap dialog y responde `no`. Timeout máximo de 60s.
-*   **Verificación Post-Ejecución:** Analiza output capturado y emite 🚨 WARNING si no detecta evidencia de procesamiento.
-*   **Buffer Drain:** Descarta buffer residual de la consola Telnet antes de ejecutar pings.
+## 1. Entrada de Referencia — Lectura de Topologías (`Topology_Workspace/`)
 
----
+### Regla Fundamental: Fidelidad Total a la Fuente
+Cuando el usuario proporciona una imagen (`.jpeg`, `.png`), PDF u otro archivo en `Topology_Workspace/`, el agente **DEBE**:
 
-## 3. Estándares de Diseño Físico
-
-### Nombres de Dispositivos (CRÍTICO)
-**Los nombres de los dispositivos deben respetar EXACTAMENTE los indicados en la imagen o documento proporcionado.** NUNCA añadir sufijos (`_E2`, `_Lab1`), prefijos ni modificaciones a los nombres originales. Si la imagen dice `R1`, el nodo se llama `R1`. Si dice `PC3`, se llama `PC3`.
-
-### Posicionamiento
-*   **Margen de Seguridad:** Mantener 200 unidades de distancia entre nodos para evitar solapamientos.
-*   **Fidelidad Sensorial (Crítico):** Si el usuario proporciona una imagen base, el Agente DEBE mapear y respetar meticulosamente cada etiqueta (nombres de host, interfaces, IPs, máscaras). No se debe inventar ninguna convención a menos que se solicite específicamente.
-
-### Decoraciones Obligatorias — `agregar_decoracion`
-Después de trazar los enlaces, el Agente **DEBE** usar `agregar_decoracion` para etiquetar cada segmento de red visible en el diagrama original. Directrices:
-
-*   **Etiquetas de Subred:** Colocar un texto con el nombre/rango de la subred cerca del segmento correspondiente.
-    *   Posición: **100 unidades por encima** del nodo central del segmento (ej. router o switch).
-    *   Formato: fondo oscuro (`bg_color: "#2c3e50"`), texto blanco, tamaño legible.
-    *   Ejemplo: `"Red 1 — 192.168.1.0/24"` sobre el Switch1.
-*   **Etiquetas WAN:** Colocar el rango del enlace punto a punto en el **punto medio** entre los dos routers.
-    *   Posición: **80 unidades por encima** de la línea media entre los dos routers.
-    *   Ejemplo: `"WAN — 10.0.0.0/30"` entre R1 y R2.
-*   **Homogeneidad:** Todas las etiquetas deben usar el **mismo formato visual** (mismo fondo, mismo tamaño de texto, misma altura relativa). No mezclar estilos.
-
----
-
-## 4. Configuración de Equipos Cisco (IOS)
-Reglas críticas para automatización efectiva:
-
-### A. Gestión del Primer Inicio (Bootstrap)
-El servidor detecta y responde automáticamente el "System Configuration Dialog" con `no`. El agente **NO necesita** incluir `no` como primer comando.
-
-### B. Secuencia de Comandos Obligatoria
-1.  `enable`: Entrar en modo privilegiado (Prompt `#`).
-2.  `configure terminal`: Entrar en modo configuración global.
-3.  `no ip domain-lookup`: Evita bloqueos por búsqueda de DNS en comandos fallidos.
-4.  `enable secret <contraseña>`: **USAR SIEMPRE `enable secret`**, NUNCA `enable password`. `enable secret` cifra la contraseña con MD5.
-5.  `service password-encryption`: Cifra todas las contraseñas en texto plano del running-config.
-6.  **Estabilización de Enlace:** Forzar `duplex full` y `speed 100` en interfaces FastEthernet para evitar descartes de paquetes.
-
-### C. Verificación de Errores
-El servidor captura la salida completa del router y detecta patrones de error de IOS (`% Invalid input`, `% Ambiguous command`). Además, verifica que el output contenga evidencia real de ejecución (`(config)#` o `Building configuration`). Si los comandos fueron enviados durante el arranque del IOS, emite un 🚨 **WARNING** explícito.
-
----
-
-## 5. Protocolo de Comunicación en Terminal
-
-### Regla de Oro: Velocidad + Visibilidad
-La ejecución debe ser **rápida** (llamadas paralelas cuando sea posible) pero el agente debe **anunciar claramente** cada fase de trabajo para que el usuario pueda seguir el progreso en la terminal.
-
-### Formato de Anuncios por Fase
-Al iniciar cada grupo de operaciones, el agente debe escribir un encabezado claro en la terminal:
+1.  **Leer primero, actuar después.** Antes de crear cualquier dispositivo, analizar **exhaustivamente** la imagen/documento proporcionado y extraer:
+    *   Nombres exactos de todos los dispositivos (R1, SW1, PC3, etc.)
+    *   Direcciones IP y máscaras de cada interfaz (LAN y WAN)
+    *   Interfaces específicas asignadas (Fa0/0, Fa1/1, etc.)
+    *   Tipo de enrutamiento indicado (Estático, RIP, OSPF, etc.)
+    *   Decoraciones, etiquetas, notas y rótulos visibles en el diagrama
+    *   Requisitos especiales (seguridad, ruta por defecto, etc.)
+2.  **Replicar, no interpretar.** La topología en GNS3 debe ser una **copia exacta** del diagrama proporcionado. No se debe:
+    *   Inventar nombres de subredes que no aparezcan en la imagen
+    *   Cambiar asignaciones de interfaces
+    *   Omitir dispositivos o conexiones
+    *   Asumir IPs o máscaras no especificadas (preguntar al usuario si faltan datos)
+3.  **Confirmar la lectura.** Antes de proceder a crear dispositivos, el agente debe mostrar al usuario un **resumen estructurado** de lo que interpretó de la imagen para validación:
 
 ```
-📡 Fase 1: Creación de Dispositivos (11 nodos en paralelo)
-🔌 Fase 2: Cableado Físico (10 enlaces en paralelo)
-🏷️ Fase 3: Decoraciones de Subred
-⚙️ Fase 4: Configuración de VPCs (6 PCs en paralelo)
+📋 Lectura de Topología — [nombre del archivo]
+Dispositivos: R1, R2, R3, SW1, SW2, PC1-PC6 (11 nodos)
+Redes LAN: 192.168.1.0/24, 192.168.2.0/24, ...
+Redes WAN: 10.0.0.0/30, 10.0.0.4/30
+Enrutamiento: Estático
+Seguridad: enable secret [apellido]
+¿Es correcto? Procedo al despliegue.
+```
+
+### Acceso a Archivos Multimedia
+*   **Imágenes:** Usar la sintaxis `@Topology_Workspace/archivo.jpeg` para que el modelo las procese visualmente, o usar la herramienta `read_file` del sistema.
+*   **PDFs:** Leer con herramientas de archivo. Si el PDF contiene imágenes embebidas, solicitar al usuario que exporte la página relevante como imagen.
+*   **Múltiples archivos:** Si hay varios archivos, el agente debe preguntar cuál usar si no es obvio.
+
+> ⚠️ **Limitación conocida:** La interpretación de imágenes complejas puede tener errores. Números de interfaz, direcciones IP pequeñas, y texto superpuesto son propensos a errores de lectura. El agente debe **priorizar la claridad sobre la suposición**: si un dato no es legible con confianza, PREGUNTAR al usuario.
+
+---
+
+## 2. Herramientas del Servidor MCP
+
+### Gestión de Proyectos
+*   `obtener_proyectos`: Lista todos los proyectos con nombre e ID.
+*   `crear_proyecto`: Crea un nuevo proyecto, lo abre en la GUI y devuelve el `project_id`.
+*   `obtener_nodos_proyecto`: Inventario completo de nodos (states, IDs, consola).
+*   `obtener_enlaces_proyecto`: Mapa de conexiones físicas (puerto a puerto, Link IDs).
+*   `limpiar_proyecto`: Borra TODOS los nodos, enlaces y decoraciones de forma segura.
+
+### Construcción y Diseño
+*   `agregar_dispositivo`: Creación de nodos. Devuelve `node_id` y `console port`.
+*   `conectar_nodos`: Interconexión física (adaptadores + puertos). Devuelve `link_id`.
+*   `agregar_decoracion`: Etiquetado visual (SVG). **Uso obligatorio** (ver §4).
+
+### Configuración y Diagnóstico
+*   `configurar_vpc`: Configuración IP para VPCS via Telnet.
+*   `configurar_router_cisco`: Comandos IOS via Telnet con **Active Prompt Polling** + verificación post-ejecución.
+*   `verificar_conectividad`: Pings con **drain de buffer** previo.
+*   `exportar_configuraciones`: Extrae `running-config`. Envía `end` antes de `enable`.
+
+### Reportes y Backup
+*   `generar_reporte_excel`: Excel profesional (3 hojas, colores semánticos, formato idéntico a `Topology_IP.xlsx`).
+*   `generar_backup_comandos`: Markdown con comandos IOS/VPCS válidos para copy-paste directo.
+
+---
+
+## 3. Capacidades Internas del Servidor
+*   **Smart Boot Polling:** Polling TCP activo (45s routers, 5s VPCS).
+*   **Active Prompt Polling:** Envía `\r\n` cada 3s durante boot, detecta Bootstrap dialog → `no`. Timeout 60s.
+*   **Verificación Post-Ejecución:** Emite 🚨 WARNING si no detecta evidencia de procesamiento.
+*   **Buffer Drain:** Descarta buffer residual antes de ejecutar pings.
+
+---
+
+## 4. Estándares de Diseño Físico
+
+### Nombres de Dispositivos (CRÍTICO)
+**Los nombres DEBEN ser EXACTAMENTE los de la imagen/documento proporcionado.** NUNCA añadir sufijos (`_E2`, `_Lab1`), prefijos ni modificaciones. Si dice `R1` → `R1`. Si dice `PC3` → `PC3`.
+
+### Posicionamiento
+*   **Margen:** 200 unidades de distancia mínima entre nodos.
+*   **Distribución:** Respetar la disposición espacial de la imagen original (si R1 está arriba-izquierda, colocarlo arriba-izquierda en GNS3).
+
+### Decoraciones y Etiquetas — `agregar_decoracion` (OBLIGATORIO)
+Después de trazar los enlaces, el agente **DEBE** replicar con `agregar_decoracion` **TODAS** las etiquetas, notas y rótulos visibles en el diagrama original. Esto incluye:
+
+*   **Nombres de redes/subredes:** `"Red 1"`, `"LAN Ventas"`, `"WAN R1-R2"`, etc.
+*   **Rangos IP / Máscaras:** `"192.168.1.0/24"`, `"10.0.0.0/30"`, etc.
+*   **Cualquier texto informativo** que aparezca en la imagen (nombres de áreas, notas de seguridad, etc.)
+
+#### Directrices de Formato (Homogeneidad)
+| Tipo de Etiqueta | Posición | Formato |
+|---|---|---|
+| **Nombre de red LAN** | 100 unidades **encima** del switch o router gateway del segmento | `bg_color: "#2c3e50"`, texto blanco |
+| **Rango IP LAN** | Junto o debajo del nombre de red (mismo nodo de referencia, +30 unidades abajo) | `bg_color: "#2c3e50"`, texto blanco |
+| **Enlace WAN** | Punto medio entre los dos routers, 80 unidades **encima** de la línea media | `bg_color: "#1a5276"`, texto blanco |
+| **Notas especiales** | Cerca del dispositivo relevante, 120 unidades debajo | `bg_color: "#7d3c98"`, texto blanco |
+
+#### Reglas de Consistencia
+*   **TODAS** las etiquetas deben usar el **mismo tamaño de fuente** (no mezclar tamaños).
+*   **TODAS** usan fondo oscuro con texto blanco para máxima legibilidad.
+*   Si la imagen muestra una etiqueta, debe aparecer en GNS3. Si no la muestra, no la inventes (excepto rangos de IP que son técnicamente necesarios).
+
+---
+
+## 5. Configuración de Equipos Cisco (IOS)
+
+### A. Gestión del Primer Inicio (Bootstrap)
+El servidor detecta y responde automáticamente el "System Configuration Dialog" con `no`. El agente **NO** necesita incluir `no` como primer comando.
+
+### B. Secuencia de Comandos Obligatoria
+1.  `enable`
+2.  `configure terminal`
+3.  `no ip domain-lookup`
+4.  `enable secret <contraseña>` — **SIEMPRE `enable secret`**, NUNCA `enable password`.
+5.  `service password-encryption`
+6.  Configuración de interfaces con `ip address`, `no shut`, `duplex full`, `speed 100`
+
+### C. Verificación de Errores
+El servidor detecta `% Invalid input`, `% Ambiguous command` y verifica evidencia de ejecución (`(config)#`, `Building configuration`). Emite 🚨 WARNING si los comandos no fueron procesados.
+
+---
+
+## 6. Protocolo de Comunicación en Terminal
+
+### Regla de Oro: Velocidad + Visibilidad
+Ejecución **rápida** (paralela cuando sea posible) con **anuncios claros** de cada fase:
+
+```
+📋 Fase 0: Lectura y validación de topología
+📡 Fase 1: Creación de Dispositivos (X nodos en paralelo)
+🔌 Fase 2: Cableado Físico (Y enlaces en paralelo)
+🏷️ Fase 3: Decoraciones y Etiquetas de Subred
+⚙️ Fase 4: Configuración de VPCs (Z PCs en paralelo)
 🔧 Fase 5: Configuración de Routers — IPs + Interfaces
 🔀 Fase 6: Enrutamiento Estático / Dinámico
 🔐 Fase 7: Seguridad (enable secret + service password-encryption)
@@ -98,48 +143,45 @@ Al iniciar cada grupo de operaciones, el agente debe escribir un encabezado clar
 📊 Fase 9: Generación de Reportes (Excel + Backup)
 ```
 
-*   Las fases de **infraestructura** (1-4) se ejecutan en **paralelo** para máxima velocidad.
-*   Las fases de **configuración de routers** (5-7) pueden ser paralelas pero el agente debe reportar el resultado de cada router brevemente.
-*   **NUNCA sacrificar velocidad** por legibilidad. El objetivo es que el log sea escaneable, no que sea lento.
+*   Fases de infraestructura (1-4): en **paralelo**.
+*   Fases de configuración (5-7): paralelas, con reporte breve de cada router.
+*   **NUNCA sacrificar velocidad** por legibilidad.
 
 ---
 
-## 6. Enrutamiento: Estático vs Dinámico (RIP v2)
-*   **RIPv2:** Útil para laboratorios rápidos. Se debe usar `no auto-summary` para VLSM.
-*   **Enrutamiento Estático (Recomendado):** Para topologías finales con subnets complejas (/30, /27, /26), el enrutamiento estático ha demostrado mayor estabilidad en el entorno GNS3 automatizado.
+## 7. Enrutamiento: Estático vs Dinámico (RIP v2)
+*   **RIPv2:** Usar `no auto-summary` para VLSM.
+*   **Estático (Recomendado):** Mayor estabilidad en GNS3 automatizado.
     *   Ejemplo: `ip route 10.10.10.128 255.255.255.224 10.10.10.98`
 
 ---
 
-## 7. Protocolo Post-Despliegue y Reportes (`Topology_Reports/`)
-Una vez que el Agente despliega una topología y la valida como funcional (ej. tras un Health Check End-to-End exitoso), es OBLIGATORIO generar y almacenar reportes en la carpeta `Topology_Reports/`.
+## 8. Protocolo Post-Despliegue y Reportes (`Topology_Reports/`)
+Tras validar la topología (Health Check exitoso), es **OBLIGATORIO** generar:
 
-### Reglas Estrictas de Generación:
-1.  **Reporte Excel:** Utilizar siempre `generar_reporte_excel` del MCP Server. Replica automáticamente el diseño del template `Topology_IP.xlsx` (3 hojas, colores semánticos por columna, filas zebra, emojis).
-2.  **Backup de Comandos (CRÍTICO):** Utilizar `generar_backup_comandos`. El contenido debe ser:
-    *   **Comandos IOS/VPCS exactos** y válidos para copy-paste directo en consola. NO descripciones resumidas.
-    *   Incluir **TODOS los dispositivos**: Routers Y PCs/VPCS.
-    *   Para routers: incluir la secuencia completa (`enable`, `conf t`, `hostname`, `enable secret`, `service password-encryption`, `interface`, `ip address`, `no shut`, `ip route`, `end`, `write`).
-    *   Para VPCs: incluir el comando `ip <IP> <máscara> <gateway>`.
-    *   **Sección de Verificación:** Al final del backup, añadir una sección con los comandos de comprobación ejecutados:
-        *   `show ip route` — Tabla de enrutamiento
-        *   `show ip interface brief` — Estado de interfaces
-        *   `show running-config | include secret` — Verificación de seguridad
+### Reglas Estrictas:
+1.  **Reporte Excel** (`generar_reporte_excel`): Replica el formato del template `Topology_IP.xlsx` (3 hojas, colores semánticos, filas zebra).
+2.  **Backup de Comandos** (`generar_backup_comandos`):
+    *   Comandos **IOS/VPCS exactos** para copy-paste. NO descripciones.
+    *   Incluir **TODOS** los dispositivos: Routers Y PCs/VPCS.
+    *   Para routers: secuencia completa (`enable`, `conf t`, `hostname`, `enable secret`, `service password-encryption`, interfaces, rutas, `end`, `write`).
+    *   Para VPCs: `ip <IP> <máscara> <gateway>`.
+    *   **Sección de Verificación:** Incluir al final:
+        *   `show ip route`
+        *   `show ip interface brief`
+        *   `show running-config | include secret`
         *   Pings entre subredes (resultados resumidos)
-3.  **Convención de Nombres (Crítico):** Los archivos deben heredar el nombre del proyecto GNS3 activo. Ej: proyecto `Examen_Estatico` → `Topology_Examen_Estatico_IP.xlsx` y `Backup_Comandos_Examen_Estatico.md`.
-4.  **Contenido Mandatorio del Excel:**
-    *   Tablas de Direccionamiento IP completas (Interfaces, Direcciones IP, Máscaras de Subred en decimal, Gateways).
-    *   Resumen de Red / Segmentación de Subredes LAN y Enlaces WAN P2P.
+3.  **Nombres:** Heredar del proyecto GNS3. Ej: `Examen_Estatico` → `Topology_Examen_Estatico_IP.xlsx`, `Backup_Comandos_Examen_Estatico.md`.
 
 ---
 
-## 8. Resolución de Problemas (Troubleshooting)
-*   **Convergencia:** RIPv2 puede tardar hasta 60 segundos. Si usas estático, la convergencia es inmediata.
-*   **ARP Drop Inicial:** El primer paquete PING fallará sistemáticamente (Timeout) por resolución ARP. Siempre se debe proveer una segunda prueba antes de determinar una falla.
-*   **Reset Total:** Si la topología se corrompe, usa `limpiar_proyecto` desde el MCP.
-*   **Trace de Ruta:** Si el paquete llega al Gateway destino pero no responde, el problema es la **ruta de regreso**.
-*   **Capa Física:** Errores de "duplex mismatch" → resetear interfaz con `shut` / `no shut` o forzar `duplex full`.
-*   **Errores IOS Silenciosos:** Si `configurar_router_cisco` reporta `% Invalid`, revisa la sintaxis o verifica que la interfaz/protocolo existen en el modelo de router.
+## 9. Resolución de Problemas (Troubleshooting)
+*   **Convergencia:** RIPv2 ~60s. Estático = inmediato.
+*   **ARP Drop:** Primer ping falla. Siempre hacer 2da prueba.
+*   **Reset:** Usar `limpiar_proyecto` si la topología se corrompe.
+*   **Ruta de regreso:** Si llega al gateway pero no responde, falta la ruta de vuelta.
+*   **Duplex mismatch:** `shut` / `no shut` o forzar `duplex full`.
+*   **`% Invalid`:** Revisar sintaxis o verificar que interfaz/protocolo existen.
 
 ---
-*Proyecto GNS3 AI Architect — Servidor MCP v3.2.0 — Formato Excel fidedigno, Backup copy-paste real, Decoraciones obligatorias, Comunicación por fases.*
+*Proyecto GNS3 AI Architect — Servidor MCP v3.2.1 — Lectura fidedigna de topologías, Decoraciones obligatorias, Formato Excel idéntico al template, Backup copy-paste real.*

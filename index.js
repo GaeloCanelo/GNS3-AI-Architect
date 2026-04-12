@@ -32,7 +32,7 @@ async function waitForConsole(port, host = "127.0.0.1", maxWaitMs = 45000) {
 }
 
 const server = new Server(
-  { name: "gns3-topology-agent", version: "3.2.0" },
+  { name: "gns3-topology-agent", version: "3.2.1" },
   { capabilities: { tools: {} } }
 );
 

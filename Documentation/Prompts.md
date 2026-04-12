@@ -1,97 +1,180 @@
-# 🤖 Guía de Prompts para Agentes GNS3 (MCP)
+# 🤖 Guía de Prompts para el Agente GNS3 (MCP)
 
-Este documento contiene plantillas de **Prompts Recomendados** (Instrucciones) diseñados para maximizar la eficiencia y precisión de diferentes Agentes de IA (Gemini CLI, Google Antigravity, Claude, etc.) al interactuar con el Servidor MCP de GNS3.
+Este documento contiene **Prompts optimizados** para diferentes Agentes de IA al interactuar con el Servidor MCP de GNS3. Incluye instrucciones de contexto, manejo de imágenes, y prompts especializados por fase.
 
-Copie y pegue estos prompts según la fase de despliegue que necesite, o utilice el "Prompt Maestro" para despliegues End-to-End.
+---
+
+## 📖 Paso Previo Obligatorio: Contexto del Agente
+
+**Antes de cualquier prompt**, el Agente debe leer la Skill del proyecto:
+
+> **Prompt de Inicialización (SIEMPRE primero):**
+> "Lee el archivo `Documentation/Skill.md` completo. Este archivo contiene TODAS las directrices, estándares de diseño, secuencias de comandos obligatorias, protocolo de comunicación, y reglas de reportes que debes seguir. No hagas NADA hasta haberlo leído y comprendido."
+
+> [!IMPORTANT]
+> En Gemini CLI, esto se hace automáticamente si colocas las instrucciones en un archivo `GEMINI.md` en la raíz del proyecto (ver §6 abajo). Si usas otro agente, el primer prompt de cada sesión debe incluir la lectura de la Skill.
+
+---
+
+## 📷 Manejo de Imágenes y PDFs de Topologías
+
+### Cómo referenciar archivos multimedia
+El usuario coloca sus imágenes/PDFs de referencia en la carpeta `Topology_Workspace/`.
+
+**En Gemini CLI** — usar `@` para referenciar la imagen directamente:
+```
+@Topology_Workspace/Examen.jpeg Analiza esta topología y despliégala en GNS3
+```
+
+**Si Gemini no interpreta bien la imagen:**
+1.  Pedir al usuario que la comprima o convierta a PNG si es muy grande (>5MB).
+2.  Si los textos son ilegibles, pedir al usuario que los dicte manualmente:
+    > "No puedo leer claramente las IPs del enlace R1-R2 en la imagen. ¿Podrías indicarme las direcciones IP y la máscara de esa subred WAN?"
+3.  Usar `read_file` como alternativa si `@` no funciona.
+
+### Protocolo de Lectura de Imágenes
+Cuando el agente reciba una imagen de topología, **DEBE** seguir este flujo:
+
+```
+1. Leer imagen → 2. Extraer datos → 3. Mostrar resumen al usuario → 4. Esperar confirmación → 5. Ejecutar
+```
+
+**Ejemplo de resumen (Fase 0):**
+```
+📋 Lectura de Topología — Examen.jpeg
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📌 Dispositivos (11): R1, R2, R3, SW1, SW2, PC1, PC2, PC3, PC4, PC5, PC6
+📌 Redes LAN:
+   • Red 1: 192.168.1.0/24 → R1 (Fa0/0 = .1), PC1 (.10), PC2 (.20) vía SW1
+   • Red 2: 192.168.2.0/24 → R2 (Fa0/0 = .1), PC3 (.30)
+   • Red 3: 192.168.3.0/24 → R3 (Fa0/0 = .1), PC4 (.40)
+   • Red 4: 192.168.4.0/24 → R3 (Fa1/0 = .1), PC5 (.50), PC6 (.60) vía SW2
+📌 Redes WAN:
+   • R1 (Fa1/0 = .1) ↔ R2 (Fa1/0 = .2): 10.0.0.0/30
+   • R2 (Fa1/1 = .5) ↔ R3 (Fa1/1 = .6): 10.0.0.4/30
+📌 Enrutamiento: Estático
+📌 Seguridad: enable secret Ramirez
+📌 Especial: Ruta por defecto en R2
+
+¿Es correcto? Procedo al despliegue.
+```
 
 ---
 
 ## 🎯 Prompts Específicos por Fase
 
-Utiliza estos prompts si prefieres tener control absoluto y avanzar paso a paso:
-
 ### Fase 1: Diseño Físico y Etiquetado
 > **Prompt:**
-> "Actúa como un Arquitecto de Redes. Basándote en la imagen/PDF de la topología proporcionada en la carpeta `Topology_Workspace`, utiliza el servidor MCP para diseñar la jerarquía física en el proyecto GNS3 actual.
-> 1. Agrega todos los dispositivos (Routers, Switches, VPCS) manteniendo sus nombres exactos.
-> 2. Conecta todas las interfaces físicas respetando estrictamente los puertos indicados en la imagen (e.g. Fa1/1 con Fa0/0).
-> 3. Añade decoraciones SVG para delimitar visualmente las subredes y coloca etiquetas de texto con las IPs/Máscaras de las Lans y Enlaces WAN. No configures lógica todavía, solo diseño físico."
+> "Basándote en la imagen de topología en `Topology_Workspace/`, usa las herramientas MCP para:
+> 1. Crear un proyecto GNS3 con el nombre indicado.
+> 2. Agregar todos los dispositivos con sus nombres **EXACTOS** (no añadas sufijos).
+> 3. Conectar interfaces respetando los puertos del diagrama.
+> 4. Colocar decoraciones/etiquetas para TODAS las subredes y notas visibles en la imagen.
+> No configures lógica todavía."
 
-### Fase 2: Configuración Inicial (IPs e Interfaces)
+### Fase 2: Configuración IP + Interfaces
 > **Prompt:**
-> "El diseño físico de la red ya está en GNS3. Ahora, procede con la fase de Bootstrap (Zero-Touch Provisioning):
-> 1. Inicia todos los nodos si están apagados.
-> 2. Una vez encendidos, usa Telnet para configurar el direccionamiento IP de cada interfaz en los Routers según las etiquetas del mapa. Recuerda ejecutar `no shut` y establecer `duplex full` / `speed 100` en las interfaces.
-> 3. Configura las direcciones locales, máscaras y gateways predeterminados en todos los VPCS correspondientes."
+> "El diseño físico está listo. Configura:
+> 1. IPs de VPCs con `configurar_vpc` (en paralelo para velocidad).
+> 2. IPs de Routers con `configurar_router_cisco`. Usa `enable secret`, `service password-encryption`, `no ip domain-lookup`, `duplex full`, `speed 100`, `no shut`.
+> 3. Anuncia cada dispositivo en el log de terminal."
 
-### Fase 3: Enrutamiento Inteligente (Estático o RIPv2)
-> **Prompt:**
-> *(Elige Estático o Dinámico según tu necesidad)*
+### Fase 3: Enrutamiento
+> **Prompt (Estático):** "Inyecta rutas estáticas en todos los routers. Recuerda incluir la ruta de regreso en cada uno y la ruta por defecto si aplica."
 >
-> **Para Estático:** "Ahora requiero convergencia End-to-End. Accede por Telnet a los routers e inyecta las rutas estáticas necesarias para que todas las LANs periféricas se alcancen mutuamente. Recuerda que la ruta de regreso también debe existir para que los paquetes regresen al origen."
->
-> **Para Dinámico (RIPv2):** "Configura enrutamiento dinámico RIP versión 2 en todos los routers de la topología. Recuerda inyectar el comando `no auto-summary` dada nuestra arquitectura VLSM y declara correctamente los identificadores de red (`network X.X.X.X`) que cada router conoce directamente."
+> **Prompt (RIPv2):** "Configura RIPv2 con `no auto-summary` en todos los routers. Declara correctamente los `network` que cada router conoce directamente."
 
-### Fase 4: Health Check Nativo (Validación de Conectividad)
+### Fase 4: Validación
 > **Prompt:**
-> "La topología ha sido configurada y enrutada. Necesito que valides la convergencia de extremo a extremo usando las herramientas nativas del agente:
-> 1. Utiliza `verificar_conectividad` desde cada VPC hacia su Gateway y hacia las IPs de las LANs remotas.
-> 2. Si un ping falla, realiza un segundo intento (para descartar ARP timeout).
-> 3. Si persiste el fallo, entra a la consola del router (`configurar_router_cisco`) para revisar la tabla de rutas con `show ip route` y corrige el enrutamiento antes de reintentar."
+> "Valida la conectividad:
+> 1. Ping desde cada VPC hacia su gateway y hacia IPs de LANs remotas.
+> 2. Si falla el primer ping, reintenta (ARP timeout).
+> 3. Si persiste, ejecuta `show ip route` en el router para diagnosticar."
 
-### Fase 5: Auditoría, Backup y Documentación
+### Fase 5: Reportes y Cierre
 > **Prompt:**
-> "La red está operativa y validada. Procede con el cierre técnico del proyecto:
-> 1. Utiliza `obtener_nodos_proyecto` y `obtener_enlaces_proyecto` para generar un inventario exacto de la topología actual.
-> 2. Ejecuta `exportar_configuraciones` en cada router para extraer el `running-config` final.
-> 3. Con toda esta información, genera los reportes `.md` y `.xlsx` en la carpeta `Topology_Reports/` siguiendo nuestros estándares de nomenclatura (`Topology_NombreProyecto_IP`)."
+> "La red funciona. Genera el cierre técnico:
+> 1. `generar_reporte_excel` con las 3 hojas (WAN, LAN, Resumen).
+> 2. `generar_backup_comandos` con comandos IOS reales (incluir PCs y sección de verificación).
+> 3. Los archivos deben ir en `Topology_Reports/` con nombres que hereden el proyecto."
 
 ---
 
-## 🚀 Prompt Maestro (End-to-End Nativo)
-
-Use este prompt si desea que el agente realice todo el ciclo de vida de la red de forma puramente autónoma:
+## 🚀 Prompt Maestro (End-to-End Autónomo)
 
 > **Prompt Maestro:**
-> "Asume el rol de Ingeniero de Redes Senior. Tu misión es orquestar un despliegue completo en GNS3 de forma autónoma:
+> "Asume el rol de Ingeniero de Redes Senior. Lee primero el archivo `Documentation/Skill.md` completo.
 >
-> 1. **Preparación:** Si no hay un proyecto abierto, utiliza `crear_proyecto` para iniciar uno nuevo con el nombre de la topología.
-> 2. **Construcción:** Lee la imagen/instrucciones de `Topology_Workspace/`, agrega los dispositivos y conéctalos respetando los puertos exactos. Añade etiquetas visuales con `agregar_decoracion`.
-> 3. **Configuración:** Inicia los nodos y configura IPs en Routers y VPCs. (Recuerda el retardo de arranque de los routers Cisco).
-> 4. **Enrutamiento:** Implementa el enrutamiento [ESTÁTICO / RIPv2] para garantizar conectividad total.
-> 5. **Validación:** Usa `verificar_conectividad` para confirmar el éxito del despliegue (mínimo 100% de éxito en pings críticos).
-> 6. **Cierre:** Exporta las configuraciones finales de los routers y genera los reportes de red en `Topology_Reports/`.
+> Tu misión es desplegar la topología que aparece en `@Topology_Workspace/[nombre_archivo]` de forma completamente autónoma:
 >
-> Actúa proactivamente, diagnostica fallos en tiempo real y no te detengas hasta que la red sea 'Saludable' y esté documentada."
+> 1. **Lectura:** Analiza la imagen, extrae TODOS los datos y muéstrame un resumen para validar.
+> 2. **Construcción:** Crea el proyecto, agrega dispositivos con sus nombres EXACTOS, conecta interfaces, y coloca las decoraciones/etiquetas tal cual aparecen en la imagen.
+> 3. **Configuración:** Configura IPs en Routers y VPCs. Usa `enable secret`, `service password-encryption`.
+> 4. **Enrutamiento:** Implementa [ESTÁTICO / RIPv2] según indique la imagen.
+> 5. **Validación:** Pings End-to-End. Si falla, diagnostica y corrige.
+> 6. **Cierre:** Genera el reporte Excel y el backup de comandos en `Topology_Reports/`.
+>
+> Sigue el protocolo de fases del Skill.md. Anuncia cada fase. No te detengas hasta que la red sea saludable y documentada."
 
 ---
 
 ## 🔍 Prompt de Auditoría de Red Existente
-Utiliza este prompt cuando ya tengas una red montada y quieras que la IA tome el control:
 
 > **Prompt:**
-> "Actúa como Auditor de Redes. Analiza el proyecto GNS3 actual y genera un diagnóstico completo:
-> 1. Usa `obtener_nodos_proyecto` y `obtener_enlaces_proyecto` para entender la arquitectura física actual.
-> 2. Realiza pruebas de `verificar_conectividad` entre todos los puntos terminales (VPCs) para detectar cuellos de botella o fallos de ruta.
-> 3. Extrae las configuraciones de los routers con `exportar_configuraciones` para verificar si hay errores en las sentencias de red o interfaces apagadas.
-> 4. Entrégame un resumen ejecutivo con los hallazgos y las correcciones realizadas."
+> "Actúa como Auditor de Redes. Analiza el proyecto GNS3 actual:
+> 1. Usa `obtener_nodos_proyecto` y `obtener_enlaces_proyecto` para entender la arquitectura.
+> 2. Ejecuta `verificar_conectividad` entre todos los endpoints.
+> 3. Extrae `running-config` de cada router con `exportar_configuraciones`.
+> 4. Entrégame un resumen ejecutivo con hallazgos y correcciones."
+
+---
+
+## 📝 Configuración de GEMINI.md (Auto-Contexto)
+
+Para que Gemini CLI cargue automáticamente las instrucciones, crea un archivo `GEMINI.md` en la raíz del proyecto con el siguiente contenido:
+
+```markdown
+# Instrucciones del Proyecto GNS3 AI Architect
+
+Eres un Ingeniero de Redes Senior que opera topologías en GNS3 a través de herramientas MCP.
+
+## Lectura Obligatoria
+Antes de ejecutar cualquier acción, LEE COMPLETO el archivo `Documentation/Skill.md`. Contiene:
+- Protocolo de lectura de imágenes/PDFs de topologías
+- Estándares de diseño, nombres, y decoraciones
+- Secuencia de comandos IOS obligatoria
+- Protocolo de comunicación en terminal
+- Reglas de reportes y backup
+
+## Archivos de Referencia
+- `Topology_Workspace/`: Carpeta donde el usuario coloca imágenes y PDFs de topologías
+- `Topology_Reports/Topology_IP.xlsx`: Template base para reportes Excel
+- `Documentation/Prompts.md`: Prompts recomendados por fase
+
+## Reglas Core
+1. Los nombres de dispositivos deben ser EXACTOS a los de la imagen (nunca sufijos)
+2. Las decoraciones y etiquetas deben replicar EXACTAMENTE las de la imagen original
+3. Usar `enable secret` (NUNCA `enable password`) + `service password-encryption`
+4. Anunciar fases de trabajo con emojis para legibilidad en terminal
+5. Los backups deben contener comandos IOS reales para copy-paste
+```
+
+Este archivo se carga **automáticamente** en cada sesión de Gemini CLI dentro del directorio del proyecto.
 
 ---
 
 ## 🤖 Ajustes Específicos por Agente de IA
 
-Debido a las particularidades de entendimiento de cada modelo, ten en cuenta los siguientes consejos:
+### Gemini CLI (Recomendado)
+*   **Setup:** Crear `GEMINI.md` en la raíz (ver §6 arriba). Usar `@` para imágenes.
+*   **Prompts:** El Prompt Maestro funciona bien. Las fases se ejecutan rápido gracias al MCP.
+*   **Imágenes:** Si `@archivo.jpeg` no funciona, probar con la ruta completa `@Topology_Workspace/archivo.jpeg` o pedir al usuario que describa los datos manualmente.
+*   **Crash recovery:** "Limpia el proyecto con `limpiar_proyecto` e intenta de nuevo."
 
-### Google Antigravity (IA Agent de Alta Autonomía)
-*   **Recomendación:** Utiliza siempre el **Prompt Maestro**.
-*   **Comportamiento:** Antigravity es extremadamente proactivo. Es capaz de ejecutar scripts encadenados, escribir parches dinámicos si la API falla, hacer iteraciones en terminal y revisar sus propios errores de ping.
-*   **Nota:** Si le das un comando complejo, asegúrate de estar monitoreando y aprobando sus intenciones terminales cuando te las presente.
+### Google Antigravity
+*   **Recomendación:** Prompt Maestro. Antigravity es proactivo y capaz de iteraciones complejas.
+*   **Nota:** Monitorear las acciones de terminal cuando las presente para aprobación.
 
-### Gemini CLI (IA de Terminal / Conversacional)
-*   **Recomendación:** Utiliza los **Prompts Específicos por Fase**.
-*   **Comportamiento:** Gemini CLI es excelente operando el formato Call-and-Response de las herramientas del MCP. Al separar las tareas en Fases (Diseño -> IP -> Routing -> Check), aseguras que Gemini no desborde la API de Dynamips al intentar enviar muchísimas llamadas consecutivas rápidas.
-*   **Nota:** Si ocurre un crash, pídele amablemente a Gemini CLI que "Limpie el proyecto con la herramienta limpiar_proyecto e intente inyectar el diseño nuevamente con retardos".
-
-### Claude Desktop (vía extensión MCP)
-*   **Recomendación:** Utiliza los **Prompts Específicos por Fase**.
-*   **Comportamiento:** Claude es meticuloso leyendo configuraciones y es soberbio para diagnosticar tablas de ruteo erróneas (`show ip route`). Pídele que se tome el rol de Agente Auditor cuando la red esté enrutada para encontrar posibles cuellos de botella.
+### Claude Desktop (vía MCP)
+*   **Recomendación:** Prompts por Fase. Claude es meticuloso para auditoría de `show ip route`.
+*   **Nota:** Excelente para diagnosticar tablas de ruteo erróneas.

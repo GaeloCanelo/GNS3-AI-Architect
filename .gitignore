@@ -12,7 +12,7 @@ Topology_Reports/*
 !Topology_Reports/.gitkeep
 !Topology_Reports/Topology_IP.xlsx
 
-# Scripts de sesiones anteriores (wildcard para no necesitar lista manual)
+# Scripts de sesiones anteriores (wildcard)
 config_*.js
 check_*.js
 debug_*.js
@@ -21,7 +21,3 @@ reset_*.js
 test_*.js
 exit_dialog.js
 fix_duplex.js
-
-# Imágenes grandes y artefactos de sesiones de test
-*.jpeg
-*.png
