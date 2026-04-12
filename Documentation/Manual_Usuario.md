@@ -35,7 +35,26 @@ Una vez dentro de la interfaz de Gemini (escribiendo `gemini` en la terminal):
 *   **Evitar Conflictos de Shell:** A veces Gemini intenta usar `curl` (que en Windows falla por alias de PowerShell). Si esto pasa, dile:
     > "No uses la herramienta Shell. Usa exclusivamente las herramientas MCP del agente-gns3."
 
-## 5. Prompt Maestro para Nuevos Usuarios
+## 5. Herramientas de Automatización GNS3
+
+### Gestión de Proyectos y Visibilidad
+*   **`crear_proyecto`**: Inicia un entorno nuevo desde cero indicando solo el nombre.
+*   **`obtener_nodos_proyecto`**: Te permite ver qué equipos hay en el mapa, sus IDs y su estado (encendido/apagado).
+*   **`obtener_enlaces_proyecto`**: Muestra cómo están conectados todos los cables (puerto a puerto).
+*   **`limpiar_proyecto`**: Borra de forma segura todos los nodos, enlaces y dibujos.
+
+### Construcción y Diseño
+*   **`agregar_dispositivo`**: Coloca un router, VPC o switch en el mapa usando coordenadas X e Y.
+*   **`conectar_nodos`**: Tira un cable entre dos equipos especificando los puertos.
+*   **`agregar_decoracion`**: Añade etiquetas de texto o fondos de colores (rectángulos/elipses).
+
+### Configuración y Diagnóstico
+*   **`configurar_vpc`**: Asigna IP, máscara y gateway a una VPC de forma automática.
+*   **`configurar_router_cisco`**: Envía ráfagas de comandos IOS a routers Cisco vía Telnet.
+*   **`verificar_conectividad`**: ¡Ping inteligente! Prueba la red desde VPCs o Routers y confirma el éxito (maneja retrasos de ARP).
+*   **`exportar_configuraciones`**: Extrae el `running-config` completo de un router para respaldarlo.
+
+## 6. Prompt Maestro para Nuevos Usuarios
 Copia y pega este prompt para probar todo el sistema de una vez (Asegúrate de tener GNS3 abierto con un proyecto llamado `Prueba_Agente`):
 
 > "Usa tus herramientas MCP para el proyecto 'Prueba_Agente'. 
@@ -45,6 +64,6 @@ Copia y pega este prompt para probar todo el sistema de una vez (Asegúrate de t
 > 4. Activa RIPv2 en el Router.
 > 5. Finalmente, dibuja un rectángulo azul que encierre todo y añade un texto que diga 'Red Automatizada con Éxito'."
 
-## 6. Solución de Problemas Rápidos
+## 7. Solución de Problemas Rápidos
 *   **¿El Router no se crea?** Asegúrate de tener una plantilla (Template) de nombre `c7200` ya creada en GNS3.
 *   **¿Timeout al configurar?** Los routers tardan 1-2 minutos en encender totalmente. Ten paciencia o pide a Gemini que reintente tras un momento.

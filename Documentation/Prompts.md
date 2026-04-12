@@ -32,28 +32,49 @@ Utiliza estos prompts si prefieres tener control absoluto y avanzar paso a paso:
 >
 > **Para Dinámico (RIPv2):** "Configura enrutamiento dinámico RIP versión 2 en todos los routers de la topología. Recuerda inyectar el comando `no auto-summary` dada nuestra arquitectura VLSM y declara correctamente los identificadores de red (`network X.X.X.X`) que cada router conoce directamente."
 
-### Fase 4: Health Check (Ping y Validación)
+### Fase 4: Health Check Nativo (Validación de Conectividad)
 > **Prompt:**
-> "La topología ha sido configurada y enrutada. Necesito que audites la convergencia P2P.
-> 1. Llama al script automatizado `health_check.js` y envíame los resultados de las pruebas cruzadas de Ping.
-> 2. Si alguna prueba falla (Timeouts continuos), realiza troubleshooting ingresando a la consola del Router correspondiente para verificar sus tablas de enrutamiento (`show ip route`) y vuelve a ejecutar el Ping."
+> "La topología ha sido configurada y enrutada. Necesito que valides la convergencia de extremo a extremo usando las herramientas nativas del agente:
+> 1. Utiliza `verificar_conectividad` desde cada VPC hacia su Gateway y hacia las IPs de las LANs remotas.
+> 2. Si un ping falla, realiza un segundo intento (para descartar ARP timeout).
+> 3. Si persiste el fallo, entra a la consola del router (`configurar_router_cisco`) para revisar la tabla de rutas con `show ip route` y corrige el enrutamiento antes de reintentar."
+
+### Fase 5: Auditoría, Backup y Documentación
+> **Prompt:**
+> "La red está operativa y validada. Procede con el cierre técnico del proyecto:
+> 1. Utiliza `obtener_nodos_proyecto` y `obtener_enlaces_proyecto` para generar un inventario exacto de la topología actual.
+> 2. Ejecuta `exportar_configuraciones` en cada router para extraer el `running-config` final.
+> 3. Con toda esta información, genera los reportes `.md` y `.xlsx` en la carpeta `Topology_Reports/` siguiendo nuestros estándares de nomenclatura (`Topology_NombreProyecto_IP`)."
 
 ---
 
-## 🚀 Prompt Maestro (End-to-End Automatizado)
+## 🚀 Prompt Maestro (End-to-End Nativo)
 
-Use este prompt si desea que el agente realice todo el ciclo de vida de la red de forma puramente autónoma (Ideal para **Google Antigravity** o **Gemini Automatizado**):
+Use este prompt si desea que el agente realice todo el ciclo de vida de la red de forma puramente autónoma:
 
 > **Prompt Maestro:**
-> "Asume el rol de Ingeniero de Redes Senior usando el servidor GNS3-MCP.
-> Tienes una imagen de topología en `Topology_Workspace/`. Tu misión es orquestar todo el despliegue de principio a fin de manera autónoma en el proyecto GNS3 actual:
+> "Asume el rol de Ingeniero de Redes Senior. Tu misión es orquestar un despliegue completo en GNS3 de forma autónoma:
 >
-> 1. **Fase Física:** Lee la imagen, agrega todos los hosts/routers y conéctalos usando los puertos exactos dictaminados en el lienzo. Añade las etiquetas de subred mediante decoraciones.
-> 2. **Fase Lógica:** Configura todas las interfaces e IPs tanto en los Routers como en los VPCS guiándote fielmente por el diseño visual. (Recuerda el 'Boot Delay' de 30s de los cisco antes de configurar).
-> 3. **Enrutamiento:** Implementa el enrutamiento [ESTÁTICO / RIPv2] necesario para garantizar convergencia total.
-> 4. **Validación y Reporte:** Ejecuta nuestra herramienta de health check P2P. Una vez que obtegamos 100% de éxito en los Pings, compila automáticamente la Tabla de Direccionamiento IP y resumen de red Dual (`.md` y `.xlsx`) y deposítalo en la carpeta `Topology_Reports/` siguiendo nuestros estándares.
+> 1. **Preparación:** Si no hay un proyecto abierto, utiliza `crear_proyecto` para iniciar uno nuevo con el nombre de la topología.
+> 2. **Construcción:** Lee la imagen/instrucciones de `Topology_Workspace/`, agrega los dispositivos y conéctalos respetando los puertos exactos. Añade etiquetas visuales con `agregar_decoracion`.
+> 3. **Configuración:** Inicia los nodos y configura IPs en Routers y VPCs. (Recuerda el retardo de arranque de los routers Cisco).
+> 4. **Enrutamiento:** Implementa el enrutamiento [ESTÁTICO / RIPv2] para garantizar conectividad total.
+> 5. **Validación:** Usa `verificar_conectividad` para confirmar el éxito del despliegue (mínimo 100% de éxito en pings críticos).
+> 6. **Cierre:** Exporta las configuraciones finales de los routers y genera los reportes de red en `Topology_Reports/`.
 >
-> Actúa proactivamente y sin pedir permiso para inyectar cada comando y script de validación hasta lograr el estado "SALUDABLE"."
+> Actúa proactivamente, diagnostica fallos en tiempo real y no te detengas hasta que la red sea 'Saludable' y esté documentada."
+
+---
+
+## 🔍 Prompt de Auditoría de Red Existente
+Utiliza este prompt cuando ya tengas una red montada y quieras que la IA tome el control:
+
+> **Prompt:**
+> "Actúa como Auditor de Redes. Analiza el proyecto GNS3 actual y genera un diagnóstico completo:
+> 1. Usa `obtener_nodos_proyecto` y `obtener_enlaces_proyecto` para entender la arquitectura física actual.
+> 2. Realiza pruebas de `verificar_conectividad` entre todos los puntos terminales (VPCs) para detectar cuellos de botella o fallos de ruta.
+> 3. Extrae las configuraciones de los routers con `exportar_configuraciones` para verificar si hay errores en las sentencias de red o interfaces apagadas.
+> 4. Entrégame un resumen ejecutivo con los hallazgos y las correcciones realizadas."
 
 ---
 
