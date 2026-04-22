@@ -104,7 +104,7 @@ Datos no legibles (pendientes de confirmación del usuario):
 ## 3. Capacidades Internas del Servidor
 *   **Smart Boot Polling:** Polling TCP activo (45s routers, 5s VPCS).
 *   **Active Prompt Polling:** Envía `\r\n` cada 3s durante boot, detecta Bootstrap dialog → `no`. Timeout 60s.
-*   **Logging Synchronous Automático:** `configurar_router_cisco` inyecta `line con 0 / logging synchronous / exit` antes de los comandos del agente para evitar corrupción de consola por mensajes CDP/OSPF.
+*   **Logging Synchronous + Arranque Automático:** `configurar_router_cisco` inyecta automáticamente la siguiente secuencia ANTES de los comandos del agente: `enable` → `configure terminal` → `line con 0` → `logging synchronous` → `exec-timeout 0 0` → `exit`. Esto garantiza que el router esté siempre en modo `(config)#` antes de procesar los comandos del agente, eliminando errores de contexto.
 *   **Output Filtrado:** El output de `configurar_router_cisco` elimina el banner de boot y muestra solo los comandos enviados con indicador ✅/⚠️.
 *   **Forzado de Topology_Reports/:** `generar_reporte_excel`, `generar_backup_comandos`, `generar_traceroute_md` y `validar_ruta_archivo` corrigen automáticamente cualquier ruta incorrecta.
 *   **Manejo EBUSY:** Si el Excel está abierto, se guarda como `_v2.xlsx` automáticamente.
@@ -181,8 +181,16 @@ Cuando la topología tiene múltiples áreas OSPF, dibujar rectángulos de fondo
 
 ## 5. Configuración de Equipos Cisco (IOS)
 
-### A. Bootstrap Dialog
-El servidor responde automáticamente con `no`. El agente **NO** necesita incluirlo.
+### A. Bootstrap Dialog y Diálogos Interactivos — Manejados Automáticamente
+El servidor Telnet detecta y responde a los siguientes patrones sin intervención del agente:
+
+| Patrón detectado | Respuesta automática |
+|---|---|
+| `Would you like to enter the initial configuration dialog` | `no` |
+| `[yes/no]` o `[confirm]` durante el boot | `no` |
+| `Please answer 'yes' or 'no'` (múltiples instancias) | `no` por cada ocurrencia |
+
+El agente **NO** necesita manejar ningún diálogo de Bootstrap ni respuestas interactivas del router.
 
 ### B. Seguridad — **SOLO si el usuario lo indica explícitamente**
 No configurar `enable secret` ni `service password-encryption` por default. Si el usuario especifica una contraseña o pide seguridad, entonces:
@@ -191,34 +199,59 @@ enable secret <contraseña_indicada>
 service password-encryption
 ```
 
-### C. Comandos Obligatorios de Estabilidad (SIEMPRE — en TODOS los routers)
-El servidor inyecta `logging synchronous` automáticamente, pero el agente debe incluir los siguientes comandos al inicio de cada configuración:
+### C. Comandos que el Servidor Inyecta Automáticamente— **NO incluir en el array de comandos**
+
+El servidor prepend-ea estos 6 comandos antes de ejecutar cualquier cosa del agente:
 
 ```
 enable
 configure terminal
-hostname <nombre_exacto_del_diagrama>
-no ip domain-lookup
 line con 0
 logging synchronous
 exec-timeout 0 0
 exit
 ```
 
-Por cada interfaz activa:
+> ⚠️ **IMPORTANTE:** Si el agente incluye `enable`, `configure terminal`, `line con 0`, `logging synchronous` o `exec-timeout 0 0` en su array de comandos, se ejecutarán en un contexto incorrecto (ya estamos dentro de `configure terminal`) y generarán errores IOS. **NO duplicarlos.**
+
+La secuencia que el agente sí debe enviar comienza en `hostname` y sigue con las interfaces y el protocolo:
+
 ```
+hostname <nombre_exacto_del_diagrama>
+no ip domain-lookup
 interface <Fa0/0>
 duplex full
 speed 100
 ip address <IP> <máscara>
 no shutdown
 exit
+! Repetir por cada interfaz activa...
 ```
 
-> **Nota:** `logging synchronous` ya es inyectado automáticamente por el servidor, pero incluirlo explícitamente asegura que aplique desde el primer comando enviado.
+El `end` y `write` finales también los envía el servidor automáticamente al terminar.
 
-### D. Verificación de Errores
-El servidor detecta `% Invalid`, `% Ambiguous` y muestra evidencia de ejecución. Emite 🚨 si los comandos no fueron procesados.
+### D. Interpretación del Output de `configurar_router_cisco`
+
+El output muestra un resumen por comando:
+
+```
+🔧 Configurando R1...
+  R1(config)# hostname R1          ✅  ← Comando procesado correctamente
+  R1(config)# no ip domain-lookup  ✅
+  R1(config)# interface Fa0/0      ✅
+  R1(config)# ip address 10.0.0.1 255.255.255.252  ⚠️  ← IOS detectó un % error justo después
+  R1# write  ✅
+
+🚨 Errores IOS detectados:
+  % Invalid input detected at '^' marker.
+
+🚨 ADVERTENCIA: No se detectó evidencia de que los comandos hayan sido procesados por IOS.
+```
+
+*   **✅** = El comando fue ejecutado y no hubo `%` IOS inmediatamente después.
+*   **⚠️** = Se detectó un error `%` de IOS en el output posterior al comando.
+*   **🚨 ADVERTENCIA** = El servidor no detectó ningún prompt `(config)#` en el output de los comandos del agente. Indica que los comandos probablemente no se procesaron (router en estado inesperado, contexto incorrecto, o timeout).
+*   Si aparece 🚨 ADVERTENCIA: ejecutar `ejecutar_comando_router` con `show ip interface brief` para verificar el estado real del router antes de reintentar.
 
 ---
 
@@ -439,6 +472,7 @@ show ip ospf interface brief ← Estado e interfaces OSPF activas
 
 *   **Fases 1-4:** ejecutar en **paralelo** (máxima velocidad).
 *   **Fases 5-6:** paralelas **por router**, con reporte de ✅/⚠️ por dispositivo.
+    *   ⚠️ **Límite de paralelismo:** Dynamips se satura con demasiadas conexiones Telnet simultáneas. Con **5 o más routers**, configurar en **lotes de 3-4 routers** en lugar de todos a la vez. Esperar que cada lote termine antes de iniciar el siguiente.
 *   **Fase 7:** SKIP si el usuario no pidió seguridad — **no preguntar**.
 *   **Fase 8:** Adaptar los comandos de verificación según el protocolo activo.
 
