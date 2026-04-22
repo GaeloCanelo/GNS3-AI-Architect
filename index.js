@@ -543,11 +543,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const consolePort = node.console;
       const host = "127.0.0.1";
 
-      // Secuencia de arranque: enable → configure terminal → logging synchronous → comandos del agente
-      // El bloque de logging se envía DENTRO de configure terminal para que sea válido
-      const bootstrapCmds = ['enable', 'configure terminal', 'line con 0', 'logging synchronous', 'exec-timeout 0 0', 'exit'];
+      // Secuencia de arranque: enable → configure terminal → no ip domain-lookup → logging synchronous → comandos del agente
+      // no ip domain-lookup CRUCIAL: evita que IOS intente resolver como DNS el texto que llega en el buffer Telnet
+      const bootstrapCmds = ['enable', 'configure terminal', 'no ip domain-lookup', 'line con 0', 'logging synchronous', 'exec-timeout 0 0', 'exit'];
       const allCommands = [...bootstrapCmds, ...args.commands];
-      // Los primeros 6 comandos son de arranque y se excluyen del resumen visible al usuario
+      // Los primeros 7 comandos son de arranque y se excluyen del resumen visible al usuario
       const BOOTSTRAP_COUNT = bootstrapCmds.length;
 
       const configResult = await new Promise((resolve, reject) => {
@@ -586,7 +586,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             socket.write(`${cmd}\r\n`);
             step++;
             sendScheduled = true;
-            setTimeout(() => { if (sendScheduled && !settled) trySendNext(); }, 600);
+            // 800ms entre comandos (era 600ms) — Dynamips saturado necesita más tiempo para procesar
+            setTimeout(() => { if (sendScheduled && !settled) trySendNext(); }, 800);
           } else {
             // Todos los comandos enviados; cerrar sesión limpiamente
             socket.write('end\r\nwrite\r\n');

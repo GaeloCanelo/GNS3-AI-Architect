@@ -104,7 +104,7 @@ Datos no legibles (pendientes de confirmación del usuario):
 ## 3. Capacidades Internas del Servidor
 *   **Smart Boot Polling:** Polling TCP activo (45s routers, 5s VPCS).
 *   **Active Prompt Polling:** Envía `\r\n` cada 3s durante boot, detecta Bootstrap dialog → `no`. Timeout 60s.
-*   **Logging Synchronous + Arranque Automático:** `configurar_router_cisco` inyecta automáticamente la siguiente secuencia ANTES de los comandos del agente: `enable` → `configure terminal` → `line con 0` → `logging synchronous` → `exec-timeout 0 0` → `exit`. Esto garantiza que el router esté siempre en modo `(config)#` antes de procesar los comandos del agente, eliminando errores de contexto.
+*   **Arranque Automático Completo:** `configurar_router_cisco` inyecta esta secuencia ANTES de los comandos del agente: `enable` → `configure terminal` → `no ip domain-lookup` → `line con 0` → `logging synchronous` → `exec-timeout 0 0` → `exit`. Esto garantiza que el router esté en modo `(config)#`, sin intentos de resolución DNS y con consola estable antes de procesar los comandos del agente.
 *   **Output Filtrado:** El output de `configurar_router_cisco` elimina el banner de boot y muestra solo los comandos enviados con indicador ✅/⚠️.
 *   **Forzado de Topology_Reports/:** `generar_reporte_excel`, `generar_backup_comandos`, `generar_traceroute_md` y `validar_ruta_archivo` corrigen automáticamente cualquier ruta incorrecta.
 *   **Manejo EBUSY:** Si el Excel está abierto, se guarda como `_v2.xlsx` automáticamente.
@@ -201,18 +201,19 @@ service password-encryption
 
 ### C. Comandos que el Servidor Inyecta Automáticamente— **NO incluir en el array de comandos**
 
-El servidor prepend-ea estos 6 comandos antes de ejecutar cualquier cosa del agente:
+El servidor prepend-ea estos **7 comandos** antes de ejecutar cualquier cosa del agente:
 
 ```
 enable
 configure terminal
+no ip domain-lookup
 line con 0
 logging synchronous
 exec-timeout 0 0
 exit
 ```
 
-> ⚠️ **IMPORTANTE:** Si el agente incluye `enable`, `configure terminal`, `line con 0`, `logging synchronous` o `exec-timeout 0 0` en su array de comandos, se ejecutarán en un contexto incorrecto (ya estamos dentro de `configure terminal`) y generarán errores IOS. **NO duplicarlos.**
+> ⚠️ **IMPORTANTE:** Si el agente incluye `enable`, `configure terminal`, `no ip domain-lookup`, `line con 0`, `logging synchronous` o `exec-timeout 0 0` en su array de comandos, se ejecutarán en un contexto incorrecto y generarán errores IOS. **NO duplicarlos.**
 
 La secuencia que el agente sí debe enviar comienza en `hostname` y sigue con las interfaces y el protocolo:
 
@@ -500,7 +501,8 @@ show ip ospf interface brief ← Estado e interfaces OSPF activas
 *   **Convergencia OSPF:** ~30-60s. Verificar con `show ip ospf neighbor` (estado FULL) antes de pings.
 *   **ABR aislado:** Verificar que anuncie en ambas áreas con `show ip ospf database`.
 *   **Rutas estáticas no aparecen:** Verificar que el next-hop sea alcanzable (interfaz up) y que la IP del next-hop sea correcta.
-*   **VPC sin conectividad:** Verificar que el gateway esté configurado correctamente en el `ip <IP> <GW> <máscara>` y que la interfaz del router hacia esa LAN esté up.
+*   **`% Unknown command or computer name, or unable to find computer address`:** IOS está intentando resolver el texto recibido como hostname DNS. Causa: el router no tenía `no ip domain-lookup` activo cuando llegó ruido de buffer Telnet. El servidor lo inyecta automáticamente en el bootstrap, pero si el router estaba en un estado previo con DNS habilitado puede ocurrir. Solución: ejecutar `configurar_router_cisco` con solo `['no ip domain-lookup']` para desactivarlo antes de continuar.
+*   **Comandos con ✅ pero `show ip route` vacío (falso positivo):** El router recibió el texto pero Dynamips estaba saturado y no lo procesó semánticamente. Hacer `ejecutar_comando_router` con `show running-config | include router ospf` para verificar si OSPF quedó configurado. Si no aparece, reintentar la configuración en ese router.
 
 ---
 *Proyecto GNS3 AI Architect — Servidor MCP v3.3.0 — Estático / RIPv2 / OSPF Multi-Area — Wildcards automáticos, Output limpio, Topology_Reports forzado, Seguridad opcional.*
