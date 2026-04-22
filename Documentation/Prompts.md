@@ -39,11 +39,12 @@ Cuando el agente reciba una imagen de topología, **DEBE** seguir este flujo:
 1. Leer imagen → 2. Extraer datos → 3. Mostrar resumen al usuario → 4. Esperar confirmación → 5. Ejecutar
 ```
 
-**Ejemplo de resumen (Fase 0):**
+**Ejemplo de resumen (Fase 0) — adaptado al protocolo de la imagen:**
 ```
 📋 Lectura de Topología — Examen.jpeg
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 Dispositivos (11): R1, R2, R3, SW1, SW2, PC1, PC2, PC3, PC4, PC5, PC6
+
 📌 Redes LAN:
    • Red 1: 192.168.1.0/24 → R1 (Fa0/0 = .1), PC1 (.10), PC2 (.20) vía SW1
    • Red 2: 192.168.2.0/24 → R2 (Fa0/0 = .1), PC3 (.30)
@@ -52,11 +53,16 @@ Cuando el agente reciba una imagen de topología, **DEBE** seguir este flujo:
 📌 Redes WAN:
    • R1 (Fa1/0 = .1) ↔ R2 (Fa1/0 = .2): 10.0.0.0/30
    • R2 (Fa1/1 = .5) ↔ R3 (Fa1/1 = .6): 10.0.0.4/30
-📌 Enrutamiento: Estático
-📌 Seguridad: enable secret Ramirez
-📌 Especial: Ruta por defecto en R2
 
-¿Es correcto? Procedo al despliegue.
+📌 Enrutamiento: Estático
+   Rutas identificadas: 6 rutas estáticas
+   Ruta por defecto: sí (en R2)
+
+📌 Decoraciones: etiquetas de subred, rótulos WAN
+📌 Seguridad: enable secret Ramirez (indicada por el usuario)
+📌 Datos no legibles: ninguno
+
+¿Es correcto este análisis? Confirme para proceder al despliegue.
 ```
 
 ---
@@ -76,20 +82,24 @@ Cuando el agente reciba una imagen de topología, **DEBE** seguir este flujo:
 > **Prompt:**
 > "El diseño físico está listo. Configura:
 > 1. IPs de VPCs con `configurar_vpc` (en paralelo para velocidad).
-> 2. IPs de Routers con `configurar_router_cisco`. Usa `enable secret`, `service password-encryption`, `no ip domain-lookup`, `duplex full`, `speed 100`, `no shut`.
-> 3. Anuncia cada dispositivo en el log de terminal."
+> 2. IPs de Routers con `configurar_router_cisco`. Incluye: `hostname`, `no ip domain-lookup`, `logging synchronous`, `exec-timeout 0 0`, `duplex full`, `speed 100`, `no shutdown` por interfaz.
+> 3. Si el usuario solicó contraseña: `enable secret <pass>` + `service password-encryption`.
+> 4. Anuncia cada dispositivo en el log de terminal."
 
 ### Fase 3: Enrutamiento
 > **Prompt (Estático):** "Inyecta rutas estáticas en todos los routers. Recuerda incluir la ruta de regreso en cada uno y la ruta por defecto si aplica."
 >
 > **Prompt (RIPv2):** "Configura RIPv2 con `no auto-summary` en todos los routers. Declara correctamente los `network` que cada router conoce directamente."
+>
+> **Prompt (OSPF):** "Antes de configurar, ejecuta `calcular_ospf` con todas las redes de cada router. Muéstrame el plan de wildcards y áreas y espera mi confirmación. Luego configura en paralelo. Si hay costos de enlace, usa `ip ospf cost N` en las interfaces correspondientes."
 
 ### Fase 4: Validación
 > **Prompt:**
 > "Valida la conectividad:
-> 1. Ping desde cada VPC hacia su gateway y hacia IPs de LANs remotas.
-> 2. Si falla el primer ping, reintenta (ARP timeout).
-> 3. Si persiste, ejecuta `show ip route` en el router para diagnosticar."
+> 1. Usa `ejecutar_comando_router` con `show ip route` en cada router para confirmar tablas.
+>    (Si es OSPF: usar también `show ip ospf neighbor` para confirmar adyacencias FULL.)
+> 2. Ping desde cada VPC hacia su gateway y hacia IPs de LANs remotas.
+> 3. Si falla el primer ping, reintenta (ARP timeout). Si persiste, diagnostica con `show ip route`."
 
 ### Fase 5: Reportes y Cierre
 > **Prompt:**
@@ -107,14 +117,49 @@ Cuando el agente reciba una imagen de topología, **DEBE** seguir este flujo:
 >
 > Tu misión es desplegar la topología que aparece en `@Topology_Workspace/[nombre_archivo]` de forma completamente autónoma:
 >
-> 1. **Lectura:** Analiza la imagen, extrae TODOS los datos y muéstrame un resumen para validar.
-> 2. **Construcción:** Crea el proyecto, agrega dispositivos con sus nombres EXACTOS, conecta interfaces, y coloca las decoraciones/etiquetas tal cual aparecen en la imagen.
-> 3. **Configuración:** Configura IPs en Routers y VPCs. Usa `enable secret`, `service password-encryption`.
-> 4. **Enrutamiento:** Implementa [ESTÁTICO / RIPv2] según indique la imagen.
-> 5. **Validación:** Pings End-to-End. Si falla, diagnostica y corrige.
-> 6. **Cierre:** Genera el reporte Excel y el backup de comandos en `Topology_Reports/`.
+> 1. **Lectura (Fase 0):** Analiza la imagen, extrae TODOS los datos (dispositivos, IPs, interfaces, áreas OSPF si aplica, costos, etiquetas) y muéstrame un resumen estructurado para validar antes de proceder.
+> 2. **Construcción:** Crea el proyecto, agrega dispositivos con sus nombres EXACTOS, conecta interfaces con sus puertos correctos, y coloca decoraciones/etiquetas tal cual en la imagen.
+> 3. **Configuración:** Configura IPs en Routers y VPCs. Si la imagen indica OSPF, usa `calcular_ospf` primero y muéstrame el plan de wildcards y áreas antes de configurar.
+> 4. **Enrutamiento:** Implementa según indique la imagen [ESTÁTICO / RIPv2 / OSPF Multi-Area].
+> 5. **Seguridad:** SOLO si el usuario especifica contraseña o pide seguridad.
+> 6. **Validación:** Usa `ejecutar_comando_router` para `show ip route` / `show ip ospf neighbor`. Luego pings End-to-End.
+> 7. **Cierre:** Genera el reporte Excel y el backup en `Topology_Reports/`.
 >
 > Sigue el protocolo de fases del Skill.md. Anuncia cada fase. No te detengas hasta que la red sea saludable y documentada."
+
+---
+
+## 🌐 Prompt Específico: OSPF Multi-Area
+
+> **Prompt OSPF:**
+> "Asume el rol de Ingeniero de Redes Senior con experiencia en OSPF Multi-Area. Lee el archivo `Documentation/Skill.md` completo.
+>
+> La imagen `@Topology_Workspace/[archivo]` muestra una topología OSPF. Tu flujo de trabajo:
+>
+> **Fase 0 — Análisis:**
+> Extrae de la imagen: todos los routers, sus áreas, las redes en cada área, los costos de cada enlace, y cuáles son ABRs. Muéstrame el resumen y espera confirmación.
+>
+> **Fase 1-3 — Construcción:**
+> Crea dispositivos, crea los enlaces, y coloca decoraciones de área (rectángulos de fondo por área) y etiquetas de subred.
+>
+> **Fase 4 — VPCs:**
+> Configura IPs de las PCs.
+>
+> **Fase 5 — Routers (IPs):**
+> Configura interfaces con `ip address`, `no shut`, `duplex full`, `speed 100`.
+>
+> **Fase 6 — OSPF:**
+> Antes de configurar, llama a `calcular_ospf` con todas las redes de cada router. Muéstrame el plan de wildcards y áreas. Cuando confirme, procede a configurar en todos los routers en paralelo.
+> Si hay costos, configúralos con `ip ospf cost N` en las interfaces correspondientes.
+>
+> **Fase 8 — Verificación:**
+> Usa `ejecutar_comando_router` para verificar en cada router:
+> - `show ip ospf neighbor` → confirmar adyacencias
+> - `show ip route` → confirmar rutas O y O IA
+> Luego pings entre PCs de diferentes áreas.
+>
+> **Fase 9 — Reportes:**
+> `generar_reporte_excel` con campos OSPF (wildcard, area_ospf, costo_ospf) en los links. `generar_backup_comandos` incluyendo todos los routers y PCs."
 
 ---
 
@@ -142,8 +187,8 @@ Eres un Ingeniero de Redes Senior que opera topologías en GNS3 a través de her
 Antes de ejecutar cualquier acción, LEE COMPLETO el archivo `Documentation/Skill.md`. Contiene:
 - Protocolo de lectura de imágenes/PDFs de topologías
 - Estándares de diseño, nombres, y decoraciones
-- Secuencia de comandos IOS obligatoria
-- Protocolo de comunicación en terminal
+- Secuencia de comandos IOS y flujo OSPF Multi-Area completo
+- Protocolo de comunicación en terminal (fases con emojis)
 - Reglas de reportes y backup
 
 ## Archivos de Referencia
@@ -154,9 +199,11 @@ Antes de ejecutar cualquier acción, LEE COMPLETO el archivo `Documentation/Skil
 ## Reglas Core
 1. Los nombres de dispositivos deben ser EXACTOS a los de la imagen (nunca sufijos)
 2. Las decoraciones y etiquetas deben replicar EXACTAMENTE las de la imagen original
-3. Usar `enable secret` (NUNCA `enable password`) + `service password-encryption`
-4. Anunciar fases de trabajo con emojis para legibilidad en terminal
-5. Los backups deben contener comandos IOS reales para copy-paste
+3. Seguridad OPCIONAL: `enable secret` SOLO si el usuario lo indica. NO por default.
+4. OSPF: Usar `calcular_ospf` antes de configurar. Mostrar resumen al usuario.
+5. Para show ip route / traceroute / show ip ospf neighbor: usar `ejecutar_comando_router`
+6. Todos los reportes en `Topology_Reports/` sin excepción
+7. Anunciar fases con emojis. Fase 7 (Seguridad) SOLO si el usuario la pidió.
 ```
 
 Este archivo se carga **automáticamente** en cada sesión de Gemini CLI dentro del directorio del proyecto.
