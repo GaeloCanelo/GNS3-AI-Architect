@@ -120,9 +120,14 @@ Los nombres de dispositivos en GNS3 deben ser **EXACTAMENTE** los que aparecen e
 *   **Prohibido** asumir nombres si hay ambigüedad — PREGUNTAR al usuario.
 *   Los nombres se pasan en el parámetro `name` de `agregar_dispositivo`.
 
-### Posicionamiento
-*   **Margen:** 200 unidades de distancia mínima entre nodos para que el canvas quede legible.
-*   **Distribución:** Respetar la disposición espacial de la imagen original (si R1 está arriba-izquierda en el diagrama, colocarlo arriba-izquierda en GNS3). No reorganizar la topología.
+### Posicionamiento y Escala del Canvas
+*   **Margen mínimo entre nodos:** 200 unidades.
+*   **Distribución:** Respetar la disposición espacial del diagrama original. Si R1 está arriba-izquierda, debe estar arriba-izquierda en GNS3.
+*   **Escala global obligatoria:** Antes de colocar nodos, calcular la dimensión total del canvas y normalizar:
+    *   Canvas de referencia: **1400 × 900 unidades** para topologías medianas (5-9 dispositivos). Ajustar proporcional para topologías más grandes.
+    *   Distribuir los nodos de forma que el diagrama ocupe al menos el **70%** del canvas, no más del **90%** (margenes de 70u en los bordes).
+    *   Si todos los routers caben en menos de 600u de ancho → hay una topología demasiado estrecha. Ampliar la distribución X.
+*   **No reorganizar** la topología: respetar qué nodos están arriba, abajo, izquierda, derecha respecto al original.
 
 ### Decoraciones y Etiquetas — `agregar_decoracion` (OBLIGATORIO)
 
@@ -156,9 +161,10 @@ fill_opacity = 1.0  (etiquetas con fondo sólido)
 > **Regla de centrado LAN:** La coordenada `x` de una etiqueta LAN = **promedio X de todos los dispositivos de esa LAN** − (ancho_svg / 2).
 
 #### Reglas de Consistencia
-*   **TODAS** las etiquetas deben usar el **mismo tamaño de fuente** dentro de su tipo (no mezclar tamaños arbitrariamente).
-*   **TODAS** usan fondo oscuro con texto blanco para máxima legibilidad.
-*   Si la imagen muestra una etiqueta → debe aparecer en GNS3. Si no aparece en la imagen → no inventarla (excepto rangos IP que son técnicamente necesarios para la documentación).
+*   **TODAS** las etiquetas de subred/red deben usar el **mismo tamaño de fuente** dentro de su tipo (no mezclar tamaños arbitrariamente).
+*   Las etiquetas de **subred, IP de red, rango, enlace WAN** usan fondo oscuro con texto blanco.
+*   **Identificadores de puerto** (etiquetas pequeñas de último octeto como `.65`, `.1`, `.2`, `.10`) deben ser **transparentes**: `fill_opacity: 0.0`, sin `bg_color`, color de texto `#FFFFFF` o `#00D4FF`, `font_size: 9`. **No aplicarles fondo de color.**
+*   Si la imagen muestra una etiqueta → replicarla en GNS3. Si no aparece en la imagen → no inventarla.
 
 #### Rectángulos de Área OSPF (type: `rectangle`) — Solo si la topología usa OSPF
 
@@ -172,10 +178,14 @@ Cuando la topología tiene múltiples áreas OSPF, dibujar rectángulos de fondo
 | Área 3+ | `#E67E22` (naranja) | 0.10–0.15 | 1 |
 
 **Reglas de posicionamiento del rectángulo:**
-*   `x` e `y`: coordenada **mínima** de los routers del área menos un margen de **80u**.
-*   `width` y `height`: span total (coordenada máx − mín de los routers del área) más **160u** de margen.
+*   `x` = coordenada X mínima de los routers del área menos **150u**.
+*   `y` = coordenada Y mínima de los routers del área menos **150u**.
+*   `width` = (X_max − X_min de los routers del área) + **300u** de margen total.
+*   `height` = (Y_max − Y_min de los routers del área) + **300u** de margen total.
 *   El rectángulo va en `z=1` (fondo). Los dispositivos quedan en z superior automáticamente.
-*   Añadir una etiqueta de texto con el nombre del área (exactamente como aparece en el diagrama, ej: `"Área 0"` o `"BACKBONE"`) en la esquina superior izquierda del rectángulo: `font_size=13`, color del área correspondiente, `z=2`.
+*   Etiqueta del nombre del área: `font_size=13`, color del área correspondiente, `z=2`, posicionada 20u a la derecha y 20u abajo de la esquina superior izquierda del rectángulo, **con `fill_opacity: 0.0`** (sin fondo — solo texto).
+
+> ⚠️ **GNS3 extiende el hitbox del rectángulo**: Al hacer clic, el área seleccionada puede parecer más grande que el rectángulo visual. Esto es normal. Asegurarse de que `width` y `height` sean suficientemente grandes para englobar todos los nodos del área con el margen de 150u.
 
 ---
 
