@@ -108,6 +108,52 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
+        name: "eliminar_dispositivo",
+        description: "Elimina un dispositivo (nodo) individual del proyecto. Lo detiene antes de borrarlo para evitar crashes de Dynamips. Requiere el node_id del nodo a eliminar.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_id: { type: "string" },
+            node_id:    { type: "string", description: "ID del nodo a eliminar (obtenible con obtener_nodos_proyecto)" }
+          },
+          required: ["project_id", "node_id"]
+        }
+      },
+      {
+        name: "eliminar_decoracion",
+        description: "Elimina una decoraci\u00f3n individual (etiqueta, rect\u00e1ngulo, etc.) del proyecto por su drawing_id. Usar obtener_decoraciones_proyecto para obtener los IDs.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_id:  { type: "string" },
+            drawing_id:  { type: "string", description: "ID de la decoraci\u00f3n a eliminar" }
+          },
+          required: ["project_id", "drawing_id"]
+        }
+      },
+      {
+        name: "limpiar_decoraciones",
+        description: "Elimina TODAS las decoraciones (etiquetas, rect\u00e1ngulos, textos) del proyecto sin tocar nodos ni enlaces. \u00fatil para redise\u00f1ar el etiquetado sin perder la topolog\u00eda.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_id: { type: "string" }
+          },
+          required: ["project_id"]
+        }
+      },
+      {
+        name: "obtener_decoraciones_proyecto",
+        description: "Lista todas las decoraciones (drawings) del proyecto con su drawing_id, posici\u00f3n y contenido SVG. Necesario para identificar qu\u00e9 decoraci\u00f3n eliminar con eliminar_decoracion.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_id: { type: "string" }
+          },
+          required: ["project_id"]
+        }
+      },
+      {
         name: "configurar_vpc",
         description: "Configura la IP, máscara y gateway de una VPC mediante comandos de consola.",
         inputSchema: {
@@ -493,6 +539,88 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       for (const drawing of drawings) { await deleteSafe(`/projects/${args.project_id}/drawings/${drawing.drawing_id}`); await sleep(500); }
 
       return { content: [{ type: "text", text: "Proyecto limpiado con seguridad (Polling Strict + Destrucción Secuencial)." }] };
+    }
+
+    // ─── Eliminar Dispositivo Individual ───
+    else if (name === "eliminar_dispositivo") {
+      const deleteSafe = async (url) => { try { await fetchGNS3(url, 'DELETE'); } catch (e) { if (!e.message.includes("404")) throw e; } };
+
+      // 1. Obtener info del nodo
+      const node = await fetchGNS3(`/projects/${args.project_id}/nodes/${args.node_id}`);
+      const nodeName = node.name || args.node_id;
+
+      // 2. Detener el nodo si está corriendo (necesario para evitar crash en Dynamips)
+      if (node.status === 'started' || node.status === 'suspended') {
+        await fetchGNS3(`/projects/${args.project_id}/nodes/${args.node_id}/stop`, 'POST').catch(() => {});
+        // Esperar confirmación de parada (máx 15s)
+        for (let i = 0; i < 15; i++) {
+          const current = await fetchGNS3(`/projects/${args.project_id}/nodes/${args.node_id}`);
+          if (current.status === 'stopped') break;
+          await sleep(1000);
+        }
+      }
+
+      // 3. Eliminar los enlaces del nodo primero (GNS3 lo requiere)
+      const links = await fetchGNS3(`/projects/${args.project_id}/links`);
+      const nodeLinks = links.filter(l =>
+        l.nodes && l.nodes.some(n => n.node_id === args.node_id)
+      );
+      for (const link of nodeLinks) {
+        await deleteSafe(`/projects/${args.project_id}/links/${link.link_id}`);
+        await sleep(300);
+      }
+
+      // 4. Eliminar el nodo
+      await deleteSafe(`/projects/${args.project_id}/nodes/${args.node_id}`);
+
+      return { content: [{ type: "text", text: `Dispositivo '${nodeName}' eliminado correctamente (${nodeLinks.length} enlace(s) removido(s) previamente).` }] };
+    }
+
+    // ─── Eliminar Decoración Individual ───
+    else if (name === "eliminar_decoracion") {
+      try {
+        await fetchGNS3(`/projects/${args.project_id}/drawings/${args.drawing_id}`, 'DELETE');
+        return { content: [{ type: "text", text: `Decoración ${args.drawing_id} eliminada correctamente.` }] };
+      } catch (e) {
+        if (e.message.includes('404')) {
+          return { content: [{ type: "text", text: `⚠️ Decoración ${args.drawing_id} no encontrada (ya eliminada o ID incorrecto).` }] };
+        }
+        throw e;
+      }
+    }
+
+    // ─── Limpiar TODAS las Decoraciones ───
+    else if (name === "limpiar_decoraciones") {
+      const drawings = await fetchGNS3(`/projects/${args.project_id}/drawings`);
+      if (drawings.length === 0) {
+        return { content: [{ type: "text", text: "No hay decoraciones en el proyecto." }] };
+      }
+      let deleted = 0, errors = 0;
+      for (const drawing of drawings) {
+        try {
+          await fetchGNS3(`/projects/${args.project_id}/drawings/${drawing.drawing_id}`, 'DELETE');
+          deleted++;
+          await sleep(200);
+        } catch (e) {
+          errors++;
+        }
+      }
+      return { content: [{ type: "text", text: `Decoraciones eliminadas: ${deleted} de ${drawings.length}${errors > 0 ? ` (${errors} errores)` : ''}.` }] };
+    }
+
+    // ─── Listar Decoraciones del Proyecto ───
+    else if (name === "obtener_decoraciones_proyecto") {
+      const drawings = await fetchGNS3(`/projects/${args.project_id}/drawings`);
+      if (drawings.length === 0) {
+        return { content: [{ type: "text", text: "No hay decoraciones en este proyecto." }] };
+      }
+      const list = drawings.map(d => {
+        // Extraer el texto visible del SVG si es un <text> element
+        const textMatch = d.svg && d.svg.match(/<text[^>]*>([^<]+)<\/text>/);
+        const preview = textMatch ? textMatch[1] : (d.svg ? d.svg.substring(0, 60) + '...' : 'rect/shape');
+        return `  [${d.drawing_id}] x=${d.x} y=${d.y} z=${d.z} | "${preview}"`;
+      }).join('\n');
+      return { content: [{ type: "text", text: `Decoraciones en el proyecto (${drawings.length}):\n${list}` }] };
     }
 
     else if (name === "configurar_vpc") {

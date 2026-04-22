@@ -76,12 +76,16 @@ Datos no legibles (pendientes de confirmación del usuario):
 *   `crear_proyecto`: Crea un nuevo proyecto, lo abre en la GUI y devuelve el `project_id`.
 *   `obtener_nodos_proyecto`: Inventario completo de nodos (estados, IDs, puertos de consola, tipo).
 *   `obtener_enlaces_proyecto`: Mapa completo de conexiones físicas (adapter/port de cada extremo, Link IDs).
+*   `obtener_decoraciones_proyecto`: Lista todas las decoraciones del proyecto con su `drawing_id`, posición y contenido. **Necesario antes de usar `eliminar_decoracion`.**
 *   `limpiar_proyecto`: Borra TODOS los nodos, enlaces y decoraciones de forma segura (stop → polling → delete secuencial).
+*   `limpiar_decoraciones`: Elimina **solo** las decoraciones (etiquetas, rectángulos) sin tocar nodos ni enlaces. Útil para rediseñar el etiquetado.
 
 ### Construcción y Diseño
 *   `agregar_dispositivo`: Busca la plantilla correcta por tipo (`c7200`, `vpcs`, etc.), crea el nodo en la posición (x, y) indicada y devuelve el `node_id` y el puerto de consola. Las coordenadas deben replicar fielmente el layout del diagrama.
 *   `conectar_nodos`: Une dos nodos por sus `node_id`, especificando `adapter` y `port` de cada extremo. Devuelve el `link_id`. Es obligatorio respetar los números de interfaz del diagrama (Fa0/0, Fa1/0, etc.).
 *   `agregar_decoracion`: **Obligatoria** una vez completado el diseño. Dibuja rectángulos, elípses o textos SVG en el canvas de GNS3. Ver §4 para reglas de posicionamiento y proporciones.
+*   `eliminar_dispositivo`: Elimina un nodo individual. Lo detiene primero y borra sus enlaces automáticamente. Requiere `node_id` (obtener con `obtener_nodos_proyecto`).
+*   `eliminar_decoracion`: Elimina una única decoración por `drawing_id`. Obtener el ID con `obtener_decoraciones_proyecto` antes de llamarla.
 
 ### Configuración y Diagnóstico
 *   `configurar_vpc`: Config IP para VPCS.
