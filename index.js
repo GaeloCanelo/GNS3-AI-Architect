@@ -1286,13 +1286,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           output += chunk;
 
           if (phase === 'enable' && promptPattern.test(chunk)) {
-            // Router contestó al enable con un prompt (#) → enviar terminal length 0
+            // Router contestó al enable con un prompt (#) → esperar 150ms y enviar terminal length 0
             phase = 'terminal';
-            socket.write(`terminal length 0\r\n`);
+            setTimeout(() => { if (!settled) socket.write(`terminal length 0\r\n`); }, 150);
           } else if (phase === 'terminal' && promptPattern.test(chunk)) {
-            // Router confirmó terminal length → enviar el comando real
+            // Router confirmó terminal length → esperar 150ms y enviar el comando real
             phase = 'command';
-            socket.write(`${args.command}\r\n`);
+            setTimeout(() => { if (!settled) socket.write(`${args.command}\r\n`); }, 150);
           } else if (phase === 'command' && promptPattern.test(chunk)) {
             // El comando terminó → resolver
             finishAndResolve();
