@@ -543,10 +543,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const consolePort = node.console;
       const host = "127.0.0.1";
 
-      // Inyección automática de logging synchronous para evitar corrupción de consola por CDP/OSPF
-      const loggingCmds = ['line con 0', 'logging synchronous', 'exit'];
-      const allCommands = [...loggingCmds, ...args.commands];
-      const cmdLog = []; // Registro de comandos enviados con su resultado
+      // Secuencia de arranque: enable → configure terminal → logging synchronous → comandos del agente
+      // El bloque de logging se envía DENTRO de configure terminal para que sea válido
+      const bootstrapCmds = ['enable', 'configure terminal', 'line con 0', 'logging synchronous', 'exec-timeout 0 0', 'exit'];
+      const allCommands = [...bootstrapCmds, ...args.commands];
+      // Los primeros 6 comandos son de arranque y se excluyen del resumen visible al usuario
+      const BOOTSTRAP_COUNT = bootstrapCmds.length;
 
       const configResult = await new Promise((resolve, reject) => {
         let settled = false;
@@ -558,13 +560,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
 
         const promptPattern = /[>#]\s*$/;
+        // Detectar tanto el diálogo de configuración inicial como preguntas yes/no interactivas
         const bootstrapPattern = /Would you like to enter the initial configuration dialog/i;
+        const yesNoPattern = /\[yes\/no\]|\[confirm\]|Please answer 'yes' or 'no'/i;
         let sendScheduled = false;
         let initialWaitDone = false;
-        let bootstrapAnswered = false;
         let enterInterval = null;
 
-        // BUG-1: Active Prompt Polling — enviar Enter cada 3s como se haría manualmente
+        // Active Prompt Polling — enviar Enter cada 3s para despertar routers lentos
         enterInterval = setInterval(() => {
           if (!settled && !initialWaitDone) {
             socket.write('\r\n');
@@ -580,13 +583,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           sendScheduled = false;
           if (step < allCommands.length) {
             const cmd = allCommands[step];
-            cmdLog.push({ cmd, sent: true });
             socket.write(`${cmd}\r\n`);
             step++;
             sendScheduled = true;
             setTimeout(() => { if (sendScheduled && !settled) trySendNext(); }, 600);
           } else {
-            // Todos los comandos enviados, cerrar sesión
+            // Todos los comandos enviados; cerrar sesión limpiamente
             socket.write('end\r\nwrite\r\n');
             setTimeout(() => {
               if (!settled) {
@@ -595,17 +597,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 socket.end();
 
                 // ── Filtrar output: quitar banner de boot, mostrar solo la parte de configuración ──
-                // El banner de boot termina cuando aparece el primer prompt real (> o #)
                 const firstPromptIdx = output.search(/[\w.-]+[>#]/);
                 const configOutput = firstPromptIdx >= 0 ? output.slice(firstPromptIdx) : output;
 
-                // Detectar errores IOS en la parte de configuración
-                const iosErrors = (configOutput.match(/% .+/g) || []).filter(e => !e.includes('SYS-'));
+                // Detectar errores IOS reales (excluir mensajes informativos de sistema)
+                const iosErrors = (configOutput.match(/% .+/g) || [])
+                  .filter(e => !e.includes('SYS-') && !e.includes('Please answer'));
 
-                // Construir resumen de comandos ejecutados
+                // Construir resumen de comandos — omitir los de arranque del log visible
                 let cmdSummary = `\n🔧 Configurando ${node.name}...\n`;
-                allCommands.forEach(cmd => {
-                  const hasError = iosErrors.some(e => configOutput.includes(cmd) && configOutput.slice(configOutput.indexOf(cmd)).match(/% .+/));
+                allCommands.slice(BOOTSTRAP_COUNT).forEach(cmd => {
+                  // Un comando tiene error si aparece un % inmediatamente después de él en el output
+                  const cmdIdx = configOutput.lastIndexOf(cmd);
+                  const snippet = cmdIdx >= 0 ? configOutput.slice(cmdIdx, cmdIdx + 200) : '';
+                  const hasError = /% .+/.test(snippet);
                   cmdSummary += `  ${node.name}(config)# ${cmd}${hasError ? '  ⚠️' : '  ✅'}\n`;
                 });
                 cmdSummary += `  ${node.name}# write  ✅\n`;
@@ -615,7 +620,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   result += `\n🚨 Errores IOS detectados:\n${iosErrors.map(e => `  ${e}`).join('\n')}\n`;
                 }
 
-                // Verificar que los comandos realmente se procesaron
+                // Verificar que los comandos de configuración realmente se procesaron
                 const configPromptSeen = /\(config[^)]*\)#/.test(configOutput) || configOutput.includes('Building configuration');
                 if (!configPromptSeen) {
                   result += '\n🚨 ADVERTENCIA: No se detectó evidencia de que los comandos hayan sido procesados por IOS.';
@@ -628,25 +633,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
         socket.on('data', (data) => {
-          output += data.toString();
+          const chunk = data.toString();
+          output += chunk;
+
           if (!initialWaitDone) {
-            // BUG-1: Detectar Bootstrap dialog y responder automáticamente
-            if (!bootstrapAnswered && bootstrapPattern.test(output)) {
-              bootstrapAnswered = true;
+            // Responder al diálogo de configuración inicial
+            if (bootstrapPattern.test(output)) {
               socket.write('no\r\n');
             }
-            // Esperar a ver un prompt real antes de enviar comandos
-            if (promptPattern.test(output)) {
+            // Responder a cualquier pregunta yes/no o [confirm] durante el boot
+            if (yesNoPattern.test(chunk)) {
+              socket.write('no\r\n');
+            }
+            // Avanzar cuando detectamos un prompt real (> o #)
+            if (promptPattern.test(chunk)) {
               initialWaitDone = true;
               cleanupInterval();
               trySendNext();
             }
-          } else if (sendScheduled && promptPattern.test(data.toString())) {
+          } else if (sendScheduled && promptPattern.test(chunk)) {
             trySendNext();
           }
         });
 
-        // BUG-1: Fallback extendido a 60s (antes era 3s) para routers c7200
+        // Fallback extendido a 60s para routers c7200 lentos
         setTimeout(() => {
           if (!initialWaitDone && !settled) {
             initialWaitDone = true;
@@ -659,7 +669,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           cleanupInterval();
           if (!settled) { settled = true; reject(new Error(`Error consola Router: ${err.message}`)); }
         });
-        // Timeout total extendido a 90s para contemplar boot + configuración
+
         const timeoutHandle = setTimeout(() => {
           if (!settled) {
             settled = true;
@@ -673,6 +683,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       return { content: [{ type: "text", text: configResult }] };
     }
+
 
     else if (name === "crear_proyecto") {
       const data = await fetchGNS3('/projects', 'POST', { name: args.name });
