@@ -586,8 +586,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             socket.write(`${cmd}\r\n`);
             step++;
             sendScheduled = true;
-            // 800ms entre comandos (era 600ms) — Dynamips saturado necesita más tiempo para procesar
-            setTimeout(() => { if (sendScheduled && !settled) trySendNext(); }, 800);
+            // 1000ms entre comandos — Dynamips con 9 routers en paralelo necesita margen extra
+            setTimeout(() => { if (sendScheduled && !settled) trySendNext(); }, 1000);
           } else {
             // Todos los comandos enviados; cerrar sesión limpiamente
             socket.write('end\r\nwrite\r\n');
@@ -647,10 +647,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               socket.write('no\r\n');
             }
             // Avanzar cuando detectamos un prompt real (> o #)
+            // Pausa de 1200ms antes de enviar el primer comando del agente:
+            // Dynamips puede tardar en procesar el bootstrap completo incluso después de devolver el prompt
             if (promptPattern.test(chunk)) {
               initialWaitDone = true;
               cleanupInterval();
-              trySendNext();
+              setTimeout(() => { if (!settled) trySendNext(); }, 1200);
             }
           } else if (sendScheduled && promptPattern.test(chunk)) {
             trySendNext();
