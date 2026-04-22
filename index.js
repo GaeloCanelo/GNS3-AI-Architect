@@ -1129,50 +1129,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       const queryResult = await new Promise((resolve, reject) => {
         let settled = false;
-        let drainDone = false;
+        let phase = 'drain'; // drain → enable → terminal → command → done
         let output = "";
 
         const socket = net.createConnection(node.console, "127.0.0.1", () => {
           socket.write('\r\n');
         });
 
-        socket.on('data', (data) => {
-          if (!drainDone) return; // Descartar buffer residual
-          output += data.toString();
-          // Terminar cuando vemos el prompt final con # (indica que el comando completó)
-          const lines = output.split('\n');
-          const lastLine = lines[lines.length - 1] || lines[lines.length - 2] || '';
-          if (/[>#]\s*$/.test(lastLine) && output.length > 10) {
-            if (!settled) {
-              settled = true;
-              setTimeout(() => { socket.end(); resolve(output); }, 500);
-            }
+        const promptPattern = /[>#]\s*$/m;
+        const finishAndResolve = () => {
+          if (!settled) {
+            settled = true;
+            setTimeout(() => { socket.end(); resolve(output); }, 300);
           }
-        });
+        };
 
-        // Drain 800ms, luego enviar enable + comando
+        // Drain: ignorar el buffer residual 1200ms y luego enviar enable
         setTimeout(() => {
           if (settled) return;
-          drainDone = true;
+          phase = 'enable';
           output = "";
-          // Subir a privilegiado y ejecutar comando
           socket.write(`enable\r\n`);
-          setTimeout(() => {
-            if (settled) return;
+        }, 1200);
+
+        socket.on('data', (data) => {
+          if (phase === 'drain') return; // descartar buffer residual
+          const chunk = data.toString();
+          output += chunk;
+
+          if (phase === 'enable' && promptPattern.test(chunk)) {
+            // Router contestó al enable con un prompt (#) → enviar terminal length 0
+            phase = 'terminal';
             socket.write(`terminal length 0\r\n`);
-            setTimeout(() => {
-              if (settled) return;
-              socket.write(`${args.command}\r\n`);
-            }, 600);
-          }, 600);
-        }, 800);
+          } else if (phase === 'terminal' && promptPattern.test(chunk)) {
+            // Router confirmó terminal length → enviar el comando real
+            phase = 'command';
+            socket.write(`${args.command}\r\n`);
+          } else if (phase === 'command' && promptPattern.test(chunk)) {
+            // El comando terminó → resolver
+            finishAndResolve();
+          }
+        });
 
         socket.on('error', (err) => {
           if (!settled) { settled = true; reject(new Error(`Error Telnet: ${err.message}`)); }
         });
         const timeoutHandle = setTimeout(() => {
           if (!settled) { settled = true; socket.destroy(); resolve(output || "Timeout esperando respuesta."); }
-        }, 20000);
+        }, 25000);
         socket.on('close', () => clearTimeout(timeoutHandle));
       });
 

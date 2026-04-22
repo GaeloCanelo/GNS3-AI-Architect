@@ -105,7 +105,7 @@ Datos no legibles (pendientes de confirmación del usuario):
 *   **Smart Boot Polling:** Polling TCP activo (45s routers, 5s VPCS).
 *   **Active Prompt Polling:** Envía `\r\n` cada 3s durante boot, detecta Bootstrap dialog → `no`. Timeout 60s.
 *   **Arranque Automático Completo:** `configurar_router_cisco` inyecta esta secuencia ANTES de los comandos del agente: `enable` → `configure terminal` → `no ip domain-lookup` → `line con 0` → `logging synchronous` → `exec-timeout 0 0` → `exit`. Timing: 1200ms de pausa tras detectar el primer prompt y 1000ms entre cada comando del agente, para dar margen a Dynamips con múltiples routers en paralelo.
-*   **Output Filtrado:** El output de `configurar_router_cisco` elimina el banner de boot y muestra solo los comandos enviados con indicador ✅/⚠️.
+*   **`ejecutar_comando_router` — Máquina de estados:** Usa secuencia `drain(1200ms) → enable → [espera #] → terminal length 0 → [espera #] → comando → [espera #]`. Cada paso espera el prompt real antes de continuar, evitando que comandos lleguen fuera de contexto en Dynamips saturado.
 *   **Forzado de Topology_Reports/:** `generar_reporte_excel`, `generar_backup_comandos`, `generar_traceroute_md` y `validar_ruta_archivo` corrigen automáticamente cualquier ruta incorrecta.
 *   **Manejo EBUSY:** Si el Excel está abierto, se guarda como `_v2.xlsx` automáticamente.
 
@@ -230,6 +230,8 @@ exit
 > ⚠️ **`duplex full` y `speed 100` NO son válidos en c7200 (GNS3):** El modelo c7200 emulado no soporta la negociación manual de duplex/speed en sus adaptadores FastEthernet. Incluir estos comandos causa `% Invalid input` en las interfaces y puede romper la secuencia de inyección. El agente **NO debe incluirlos** — con `ip address` + `no shutdown` es suficiente.
 
 El `end` y `write` finales también los envía el servidor automáticamente al terminar.
+
+> ⚠️ **`reload`, `clear ip ospf process`, `write memory` son comandos de modo PRIVILEGIADO.** `configurar_router_cisco` entra en `configure terminal`, por lo que estos comandos serán rechazados con `% Invalid input`. Para ejecutarlos, usar `ejecutar_comando_router` que opera en modo privilegiado (`Router#`).
 
 ### D. Interpretación del Output de `configurar_router_cisco`
 
@@ -503,8 +505,10 @@ show ip ospf interface brief ← Estado e interfaces OSPF activas
 *   **Rutas estáticas no aparecen:** Verificar que el next-hop sea alcanzable (interfaz up) y que la IP del next-hop sea correcta.
 *   **`% Unknown command or computer name, or unable to find computer address`:** IOS está intentando resolver el texto recibido como hostname DNS. Causa: el router no tenía `no ip domain-lookup` activo cuando llegó ruido de buffer Telnet. El servidor lo inyecta automáticamente en el bootstrap, pero si el router estaba en un estado previo con DNS habilitado puede ocurrir. Solución: ejecutar `configurar_router_cisco` con solo `['no ip domain-lookup']` para desactivarlo antes de continuar.
 *   **Comandos con ✅ pero `show ip route` vacío (falso positivo):** El router recibió el texto pero Dynamips estaba saturado y no lo procesó semánticamente. Hacer `ejecutar_comando_router` con `show running-config | include router ospf` para verificar si OSPF quedó configurado. Si no aparece, reintentar la configuración en ese router.
-*   **OSPF no converge — tabla de rutas vacía a pesar de comandos ✅:** Causa más común: las interfaces no están en estado `up/up` porque `duplex full` / `speed 100` generaron error en c7200 y la interfaz quedó `down`. Verificar con `show ip interface brief`: si hay interfaces `administratively down` o `down`, reconfigurarlas con solo `ip address` + `no shutdown` (sin duplex/speed). Si todas las interfaces están `up/up` pero OSPF no formó adyacencias, hacer `clear ip ospf process` (responder `yes`) en los ABRs y esperar 60s antes de verificar de nuevo.
+*   **OSPF no converge — tabla de rutas vacía a pesar de comandos ✅:** Causa más común: las interfaces no están en estado `up/up` porque `duplex full` / `speed 100` generaron error en c7200 y la interfaz quedó `down`. Verificar con `show ip interface brief`: si hay interfaces `administratively down` o `down`, reconfigurarlas con solo `ip address` + `no shutdown` (sin duplex/speed). Si todas las interfaces están `up/up` pero OSPF no formó adyacencias, usar `ejecutar_comando_router` con `clear ip ospf process` (el router pedirá confirmación `yes` — la herramienta espera el prompt tras el comando).
 *   **`duplex full` / `speed 100` con ⚠️ en c7200:** El modelo c7200 emulado no soporta estos comandos en FastEthernet. Genera `% Invalid input`. El agente **NO debe incluirlos** en la secuencia de configuración de routers c7200.
+*   **`show ip route` / `show ip ospf neighbor` devuelven solo el prompt vacío (`R1#`):** El router Dynamips tiene el proceso de consola "mudo" por saturación de CPU o errores de Bootflash (`% Crashinfo may not be recovered at bootflash`). Pasos: (1) Esperar 30s y reintentar. (2) Si persiste, usar `ejecutar_comando_router` con `show processes cpu` para confirmar saturación. (3) Último recurso: reiniciar el nodo via GNS3 API con `detener_nodo` + `iniciar_nodo` y esperar el boot completo (60s) antes de reconfigurar.
+*   **`reload` con ⚠️ en `configurar_router_cisco`:** `reload` es un comando de modo privilegiado. No puede ejecutarse dentro de `configure terminal`. Usar `ejecutar_comando_router` con el comando `reload` para que se envíe en modo `Router#`.
 
 ---
 *Proyecto GNS3 AI Architect — Servidor MCP v3.3.0 — Estático / RIPv2 / OSPF Multi-Area — Wildcards automáticos, Output limpio, Topology_Reports forzado, Seguridad opcional.*
