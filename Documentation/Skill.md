@@ -135,61 +135,43 @@ Los nombres de dispositivos en GNS3 deben ser **EXACTAMENTE** los que aparecen e
 
 ### Decoraciones y Etiquetas — `agregar_decoracion` (OBLIGATORIO)
 
-Después de trazar los enlaces, el agente **DEBE** replicar con `agregar_decoracion` **TODAS** las etiquetas, notas y rótulos visibles en el diagrama original. Esto incluye:
+Después de trazar los enlaces, el agente **DEBE** replicar con `agregar_decoracion` **TODAS** las etiquetas, notas y rótulos visibles en el diagrama original. Esto incluye nombres de redes/subredes, rangos IP, costos OSPF, notas de seguridad y cualquier texto informativo que aparezca en la imagen.
 
-*   **Nombres de redes/subredes:** `"Red 1"`, `"LAN Ventas"`, `"WAN R1-R2"`, etc.
-*   **Rangos IP / Máscaras:** `"192.168.1.0/24"`, `"10.0.0.0/30"`, etc.
-*   **Cualquier texto informativo** que aparezca en la imagen (nombres de áreas, notas de seguridad, etc.)
+**Si la imagen muestra una etiqueta → debe aparecer en GNS3. Si no aparece → no inventarla.**
 
-El orden de creación es: primero los rectángulos de fondo (z bajo) y luego los textos encima (z alto).
+#### Reglas de Posicionamiento (Simples)
 
-#### Fórmulas de Proporción SVG (para que el tamaño sea homogéneo y simétrico)
+*   **Etiquetas de Subred/LAN:** Colocar el texto con el nombre o rango de la subred **100 unidades por encima** del nodo central del segmento (router o switch gateway). Fondo oscuro `#2c3e50`, texto blanco.
+*   **Etiquetas de Enlace WAN:** Colocar el rango del enlace punto a punto en el **punto medio** entre los dos routers, **80 unidades por encima** de la línea media entre ellos. Fondo `#1a5276`, texto blanco.
+*   **Identificadores de puerto** (etiquetas de último octeto como `.65`, `.1`, `.22` pegadas a los routers): **Sin fondo** — `fill_opacity: 0.0`, color de texto `#00D4FF`, `font_size` pequeño (9–10). Posicionarlos a 20–30u del icono del router, del lado del enlace correspondiente.
+*   **Homogeneidad:** Todas las etiquetas del mismo tipo deben usar el mismo formato visual. No mezclar tamaños ni colores de fondo dentro del mismo tipo.
 
-```
-ancho_svg    = len(contenido) * (font_size * 0.62) + 10   ← Proporcional al texto
-alto_svg     = font_size * 1.3                              ← Altura proporcional
-fill_opacity = 1.0  (etiquetas con fondo sólido)
-             = 0.0  (solo texto, sin fondo)
-```
+#### Orden de creación
+Primero los rectángulos de fondo (si hay áreas OSPF), luego las etiquetas de texto encima.
 
-#### Directrices de Formato (Homogeneidad)
+#### Rectángulos de Área OSPF — Solo si la topología usa OSPF
 
-| Tipo de Etiqueta | Posición | `bg_color` | Color texto | `font_size` | `z` |
-|---|---|---|---|---|---|
-| **Nombre de red LAN** | 100u **arriba** del switch o router gateway (x centrado en la LAN) | `#2c3e50` (azul oscuro) | `#FFFFFF` | 11 | 5 |
-| **Rango IP LAN** | +30u **abajo** del nombre de red (mismo nodo referencia) | `#2c3e50` | `#FFFFFF` | 10 | 5 |
-| **Enlace WAN** | Punto medio entre los dos routers, 80u **arriba** de la línea media | `#1a5276` (azul marino) | `#FFFFFF` | 10 | 5 |
-| **Notas especiales** | Cerca del dispositivo relevante, 120u **abajo** | `#7d3c98` (violeta) | `#FFFFFF` | 10 | 5 |
-| **Ruta por defecto** | Junto al router que la aplica | `#7d3c98` | `#FFFFFF` | 10 | 5 |
+Cuando hay múltiples áreas OSPF, dibujar un rectángulo semitransparente por área que englobe visualmente todos los routers de esa área:
 
-> **Regla de centrado LAN:** La coordenada `x` de una etiqueta LAN = **promedio X de todos los dispositivos de esa LAN** − (ancho_svg / 2).
+| Área | Color | `fill_opacity` |
+|---|---|---|
+| Área 0 (Backbone) | `#FFD700` (dorado) | 0.12 |
+| Área 1 | `#4A90D9` (azul) | 0.12 |
+| Área 2 | `#27AE60` (verde) | 0.12 |
+| Área 3+ | `#E67E22` (naranja) | 0.12 |
 
-#### Reglas de Consistencia
-*   **TODAS** las etiquetas de subred/red deben usar el **mismo tamaño de fuente** dentro de su tipo (no mezclar tamaños arbitrariamente).
-*   Las etiquetas de **subred, IP de red, rango, enlace WAN** usan fondo oscuro con texto blanco.
-*   **Identificadores de puerto** (etiquetas pequeñas de último octeto como `.65`, `.1`, `.2`, `.10`) deben ser **transparentes**: `fill_opacity: 0.0`, sin `bg_color`, color de texto `#FFFFFF` o `#00D4FF`, `font_size: 9`. **No aplicarles fondo de color.**
-*   Si la imagen muestra una etiqueta → replicarla en GNS3. Si no aparece en la imagen → no inventarla.
+**Posicionamiento del rectángulo:**
+*   `x` = X mínima de los routers del área − **150u**
+*   `y` = Y mínima de los routers del área − **150u**
+*   `width` = (X_max − X_min) + **300u**
+*   `height` = (Y_max − Y_min) + **300u**
+*   `z = 1` (fondo). Los nodos quedan automáticamente encima.
 
-#### Rectángulos de Área OSPF (type: `rectangle`) — Solo si la topología usa OSPF
+Añadir una etiqueta de texto con el nombre exacto del área (ej. `"AREA 0"`, `"AREA 1"`) en la esquina superior izquierda del rectángulo: 20u a la derecha y 20u abajo de su esquina, **sin fondo** (`fill_opacity: 0.0`), color del área, `font_size: 13`.
 
-Cuando la topología tiene múltiples áreas OSPF, dibujar rectángulos de fondo semitransparentes que engloben visualmente todos los routers de cada área:
+> ⚠️ **Nota GNS3:** Al hacer clic en el rectángulo, el área seleccionada visualmente puede parecer más grande que el borde del rectángulo. Es comportamiento normal del hitbox de GNS3 — no es un error del tamaño definido.
 
-| Área | `bg_color` | `fill_opacity` | `z` |
-|---|---|---|---|
-| Área 0 (Backbone) | `#FFD700` (dorado) | 0.10–0.15 | 1 |
-| Área 1 | `#4A90D9` (azul) | 0.10–0.15 | 1 |
-| Área 2 | `#27AE60` (verde) | 0.10–0.15 | 1 |
-| Área 3+ | `#E67E22` (naranja) | 0.10–0.15 | 1 |
 
-**Reglas de posicionamiento del rectángulo:**
-*   `x` = coordenada X mínima de los routers del área menos **150u**.
-*   `y` = coordenada Y mínima de los routers del área menos **150u**.
-*   `width` = (X_max − X_min de los routers del área) + **300u** de margen total.
-*   `height` = (Y_max − Y_min de los routers del área) + **300u** de margen total.
-*   El rectángulo va en `z=1` (fondo). Los dispositivos quedan en z superior automáticamente.
-*   Etiqueta del nombre del área: `font_size=13`, color del área correspondiente, `z=2`, posicionada 20u a la derecha y 20u abajo de la esquina superior izquierda del rectángulo, **con `fill_opacity: 0.0`** (sin fondo — solo texto).
-
-> ⚠️ **GNS3 extiende el hitbox del rectángulo**: Al hacer clic, el área seleccionada puede parecer más grande que el rectángulo visual. Esto es normal. Asegurarse de que `width` y `height` sean suficientemente grandes para englobar todos los nodos del área con el margen de 150u.
 
 ---
 
