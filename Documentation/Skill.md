@@ -492,6 +492,54 @@ show ip ospf interface brief ← Estado e interfaces OSPF activas
 *   **EBUSY:** Si el Excel está abierto al intentar guardar, el servidor crea `_v2.xlsx` automáticamente.
 *   **En caso de duda:** Usar `validar_ruta_archivo` antes de escribir cualquier reporte.
 
+### A. `generar_backup_comandos` — Reglas Anti-Backup-Incompleto
+
+> ⚠️ **CRÍTICO: El backup DEBE incluir el 100% de los dispositivos de la topología.** Un backup que solo incluye algunos routers o PCs es inútil para replicar la red. El agente DEBE construir el array `devices` con **todos** los nodos: routers, VPCs y switches configurados.
+
+**Checklist antes de llamar a `generar_backup_comandos`:**
+1. Enumerar todos los routers (R1, R2, ... Rn) — sin omitir ninguno.
+2. Enumerar todos los VPCs (PCa, PCb, PCc, ...) — sin omitir ninguno.
+3. Para cada router: incluir **todos** los comandos aplicados: `hostname`, todas las interfaces (`interface FaX/Y`, `ip address`, `ip ospf cost`, `no shutdown`, `exit`), el bloque OSPF/RIP/rutas estáticas completo, y opcionalmente `enable secret` si se configuró seguridad.
+4. Para cada VPC: incluir el comando `ip <ip> <gw> <máscara_bits>`.
+5. El campo `device_type` es obligatorio: `'router'` o `'vpc'`.
+6. Si hay salida de verificación disponible (ej. `show ip ospf neighbor`, `show ip route`), incluirla en `verification_output` del dispositivo correspondiente.
+
+**Estructura esperada por dispositivo:**
+```json
+{
+  "name": "R6",
+  "device_type": "router",
+  "commands": [
+    "hostname R6",
+    "interface Fa1/0", "ip address 20.1.1.6 255.255.255.252", "ip ospf cost 4", "no shutdown", "exit",
+    "interface Fa2/0", "ip address 20.1.1.22 255.255.255.252", "ip ospf cost 1", "no shutdown", "exit",
+    "interface Fa3/0", "ip address 40.4.4.2 255.255.255.252", "ip ospf cost 1", "no shutdown", "exit",
+    "router ospf 1",
+    "network 20.1.1.4 0.0.0.3 area 0",
+    "network 20.1.1.20 0.0.0.3 area 0",
+    "network 40.4.4.0 0.0.0.3 area 2",
+    "exit"
+  ]
+}
+```
+
+### B. `generar_reporte_excel` — Reglas Anti-Columnas-Vacías
+
+> ⚠️ **CRÍTICO: El Excel detecta columnas OSPF automáticamente** si algún elemento del array tiene `wildcard`, `area_ospf` o `costo_ospf`. Si activas las columnas OSPF, **TODOS** los elementos deben tener esos campos con valor (nunca `null` o `undefined`). Un solo elemento sin valor genera una columna vacía.
+
+**Para WAN links (`wan_links`):**
+- Si es topología OSPF: incluir `wildcard` (ej. `"0.0.0.3"`), `area_ospf` (ej. `0` o `1`) y `costo_ospf` (ej. `5`) en **todos** los links WAN sin excepción.
+- Si no es OSPF: omitir esos campos completamente en todos los links (no pasar `wildcard: ""`).
+- Campo `router1` y `router2`: incluir el nombre del router **y la interfaz** entre paréntesis, ej. `"R1 (Fa1/0)"`.
+
+**Para LAN links (`lan_links`):**
+- Si es OSPF: incluir `wildcard` y `area_ospf` en **todos** los links LAN sin excepción.
+- Campo `gateway`: incluir nombre del router y la interfaz, ej. `"R1 (Fa0/0)"`.
+- Campo `ip_vpcs`: IP asignada al VPCS (ej. `"210.1.1.66"`).
+
+**Para el Resumen (`resumen`):** Incluir al menos estos parámetros:
+- Nombre del Proyecto, Protocolo, Número de Routers, Número de VPCs, Áreas OSPF (si aplica), Total de Subredes, Fecha de configuración.
+
 ---
 
 ## 9. Resolución de Problemas (Troubleshooting)
