@@ -92,6 +92,8 @@ Cuando el agente reciba una imagen de topología, **DEBE** seguir este flujo:
 > **Prompt (RIPv2):** "Configura RIPv2 con `no auto-summary` en todos los routers. Declara correctamente los `network` que cada router conoce directamente."
 >
 > **Prompt (OSPF):** "Antes de configurar, ejecuta `calcular_ospf` con todas las redes de cada router. Muéstrame el plan de wildcards y áreas y espera mi confirmación. Luego configura en paralelo. Si hay costos de enlace, usa `ip ospf cost N` en las interfaces correspondientes."
+>
+> **Prompt (EIGRP):** "Antes de configurar, ejecuta `calcular_eigrp` con el AS number y todas las redes de cada router. Incluye en `passive_interfaces` los nombres de las interfaces LAN (hacia hosts/VPCs). Muéstrame el resumen de wildcards y espera mi confirmación. Luego configura `router eigrp <AS> / no auto-summary / network / passive-interface` en todos los routers. Recuerda que en c7200 NO se usa `duplex full` ni `speed 100`."
 
 ### Fase 4: Validación
 > **Prompt:**
@@ -117,15 +119,47 @@ Cuando el agente reciba una imagen de topología, **DEBE** seguir este flujo:
 >
 > Tu misión es desplegar la topología que aparece en `@Topology_Workspace/[nombre_archivo]` de forma completamente autónoma:
 >
-> 1. **Lectura (Fase 0):** Analiza la imagen, extrae TODOS los datos (dispositivos, IPs, interfaces, áreas OSPF si aplica, costos, etiquetas) y muéstrame un resumen estructurado para validar antes de proceder.
+> 1. **Lectura (Fase 0):** Analiza la imagen, extrae TODOS los datos (dispositivos, IPs, interfaces, protocolo de enrutamiento, áreas OSPF si aplica, costos, etiquetas) y muéstrame un resumen estructurado para validar antes de proceder.
 > 2. **Construcción:** Crea el proyecto, agrega dispositivos con sus nombres EXACTOS, conecta interfaces con sus puertos correctos, y coloca decoraciones/etiquetas tal cual en la imagen.
-> 3. **Configuración:** Configura IPs en Routers y VPCs. Si la imagen indica OSPF, usa `calcular_ospf` primero y muéstrame el plan de wildcards y áreas antes de configurar.
-> 4. **Enrutamiento:** Implementa según indique la imagen [ESTÁTICO / RIPv2 / OSPF Multi-Area].
+> 3. **Configuración:** Configura IPs en Routers y VPCs. Si la imagen indica OSPF, usa `calcular_ospf` primero. Si indica EIGRP, usa `calcular_eigrp` primero. En ambos casos muéstrame el plan antes de configurar.
+> 4. **Enrutamiento:** Implementa según indique la imagen [ESTÁTICO / RIPv2 / OSPF Multi-Area / EIGRP].
 > 5. **Seguridad:** SOLO si el usuario especifica contraseña o pide seguridad.
-> 6. **Validación:** Usa `ejecutar_comando_router` para `show ip route` / `show ip ospf neighbor`. Luego pings End-to-End.
+> 6. **Validación:** Usa `ejecutar_comando_router` para `show ip route` / `show ip ospf neighbor` / `show ip eigrp neighbors` según protocolo. Luego pings End-to-End.
 > 7. **Cierre:** Genera el reporte Excel y el backup en `Topology_Reports/`.
 >
 > Sigue el protocolo de fases del Skill.md. Anuncia cada fase. No te detengas hasta que la red sea saludable y documentada."
+
+---
+
+> **Prompt EIGRP:**
+> "Asume el rol de Ingeniero de Redes Senior con experiencia en EIGRP. Lee el archivo `Documentation/Skill.md` completo.
+>
+> La imagen `@Topology_Workspace/[archivo]` muestra una topología EIGRP. Tu flujo de trabajo:
+>
+> **Fase 0 — Análisis:**
+> Extrae de la imagen: todos los routers, el número de AS, las redes en cada router (LAN y WAN), y las interfaces LAN de cada uno (para `passive-interface`). Muéstrame el resumen y espera confirmación.
+>
+> **Fases 1-3 — Construcción:**
+> Crea dispositivos, enlaces y coloca decoraciones de subred.
+>
+> **Fase 4 — VPCs:**
+> Configura IPs de las PCs.
+>
+> **Fase 5 — Routers (IPs):**
+> Configura interfaces con `ip address` y `no shutdown`. **NO usar `duplex full` ni `speed 100` en c7200.**
+>
+> **Fase 6 — EIGRP:**
+> Llama a `calcular_eigrp` con el AS number, todas las redes de cada router, y los nombres de interfaces LAN en `passive_interfaces`. Muéstrame el plan de wildcards. Cuando confirme, configura en todos los routers.
+>
+> **Fase 8 — Verificación:**
+> Usa `ejecutar_comando_router` para verificar en cada router:
+> - `show ip eigrp neighbors` → confirmar adyacencias
+> - `show ip route` → confirmar rutas D (EIGRP)
+> - `show ip protocols` → confirmar AS y redes anunciadas
+> Luego pings entre PCs de diferentes subredes.
+>
+> **Fase 9 — Reportes:**
+> `generar_reporte_excel` con WAN, LAN y Resumen. `generar_backup_comandos` incluyendo todos los routers y PCs."
 
 ---
 

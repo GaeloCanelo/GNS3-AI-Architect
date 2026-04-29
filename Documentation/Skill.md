@@ -94,8 +94,9 @@ Datos no legibles (pendientes de confirmación del usuario):
 *   `verificar_conectividad`: Pings con drain de buffer previo.
 *   `exportar_configuraciones`: Extrae `running-config`.
 
-### Cálculo y Planificación OSPF
+### Cálculo y Planificación de Protocolos Dinámicos
 *   `calcular_ospf`: **Usar SIEMPRE antes de configurar OSPF.** Calcula wildcards, genera bloques IOS `network`, detecta ABRs y muestra resumen por área para confirmación del usuario. **NO configurar OSPF sin haber ejecutado esta herramienta primero.**
+*   `calcular_eigrp`: **Usar SIEMPRE antes de configurar EIGRP.** Calcula wildcards desde CIDR, genera bloques IOS `router eigrp <AS> / no auto-summary / network / passive-interface`, e incluye `passive-interface` para interfaces LAN por defecto. Mostrar resumen al usuario y esperar confirmación antes de configurar.
 
 ### Reportes y Backup
 *   `generar_reporte_excel`: Excel con hojas WAN/LAN/Resumen. Si los datos incluyen campos OSPF (`wildcard`, `area_ospf`, `costo_ospf`), agrega columnas automáticamente. **Siempre guarda en `Topology_Reports/`.**
@@ -447,12 +448,77 @@ show ip ospf interface brief ← Estado e interfaces OSPF activas
 
 ---
 
+### 6D. Enrutamiento Dinámico — EIGRP
+
+**Cuándo usarlo:** Cuando el diagrama indica "EIGRP" o especifica un número de Sistema Autónomo (ej. "AS 100").
+
+#### Conceptos Clave
+*   **Sistema Autónomo (AS):** Número identificador del proceso EIGRP. Debe ser **el mismo en todos los routers** de la misma topología.
+*   **`no auto-summary`:** **OBLIGATORIO** en IOS 12.4 para redes VLSM (subredes de tamaño diferente, /26, /30, etc.). Sin este comando, EIGRP resume a clase y rompe la conectividad.
+*   **`passive-interface`:** Marca una interfaz LAN para que **no envíe hellos EIGRP** hacia los hosts, pero sigue anunciando la red. Incluir **por defecto** en todas las interfaces LAN. Solo omitir si el usuario lo indica explícitamente.
+*   **Convergencia DUAL:** EIGRP es muy rápido (~5-15s), pero en mallas densas verificar router por router con `show ip eigrp neighbors`.
+
+#### Flujo Obligatorio para EIGRP
+
+**Paso 1 — Calcular antes de configurar:**
+Usar la herramienta `calcular_eigrp` pasando el número de AS, todos los routers con sus redes, y las interfaces LAN de cada uno (para `passive-interface`). Mostrar el resumen al usuario y esperar confirmación **antes de enviar cualquier comando a los routers**.
+
+**Paso 2 — Sintaxis IOS:**
+```
+router eigrp <AS>
+no auto-summary
+network <ip_de_red> <wildcard>
+passive-interface <Fa0/0>   ← Para interfaces LAN (hosts)
+```
+
+**Paso 3 — Secuencia completa por router (EIGRP):**
+```
+hostname R1
+interface Fa0/0
+ip address <IP_LAN> <máscara_LAN>
+no shutdown
+exit
+interface Fa1/0
+ip address <IP_WAN> <máscara_WAN>
+no shutdown
+exit
+! Repetir bloque interface para cada interfaz activa
+router eigrp <AS>
+no auto-summary
+network <ip_red_LAN> <wildcard_LAN>    ← LAN
+network <ip_red_WAN1> <wildcard_WAN1>  ← WAN
+passive-interface Fa0/0                ← Interfaz LAN (no envía hellos a hosts)
+exit
+end
+write
+```
+
+> ⚠️ **c7200 en GNS3:** No usar `duplex full` ni `speed 100` — causan `% Invalid input`. Solo `ip address` + `no shutdown` es suficiente.
+
+**Paso 4 — Verificación post-configuración** (usar `ejecutar_comando_router`):
+```
+show ip eigrp neighbors        ← Confirmar adyacencias establecidas
+show ip route                  ← Verificar rutas D (EIGRP) en la tabla
+show ip eigrp topology         ← Ver rutas sucesoras y factibles
+show ip protocols              ← Confirmar AS number y redes anunciadas
+```
+
+#### Errores Comunes EIGRP
+*   **AS number diferente entre routers:** Los routers no forman adyacencia. El AS debe ser idéntico en toda la topología.
+*   **`no auto-summary` omitido:** EIGRP resume a clase y rompe redes VLSM. **Siempre incluirlo.**
+*   **Wildcard incorrecta:** Verificar especialmente en subredes /26, /27, /28. Usar `calcular_eigrp` para evitar errores manuales.
+*   **Red LAN no anunciada:** Las VPCs no tendrán rutas. Incluir siempre el `network` de la LAN.
+*   **`passive-interface` en interfaz WAN:** Si se marca pasiva una interfaz WAN, el enlace cae. Solo marcar como pasivas las interfaces hacia hosts/switches.
+
+---
+
 ## 7. Protocolo de Comunicación en Terminal
 
 ### Fases (con emojis)
 ```
 📋 Fase 0: Lectura de topología — resumen al usuario — esperar confirmación
-         (Si es OSPF: calcular_ospf → reportar wildcards y áreas al usuario)
+         (Si es OSPF:  calcular_ospf  → reportar wildcards y áreas al usuario)
+         (Si es EIGRP: calcular_eigrp → reportar wildcards y AS al usuario)
 📡 Fase 1: Creación de Dispositivos (paralelo)
 🔌 Fase 2: Cableado Físico (paralelo)
 🏷️ Fase 3: Decoraciones y Etiquetas (subredes, WANs, áreas de color si OSPF)
@@ -462,10 +528,12 @@ show ip ospf interface brief ← Estado e interfaces OSPF activas
          Estático: rutas `ip route` en cada router
          RIPv2:   `router rip / version 2 / no auto-summary / network`
          OSPF:    `router ospf 1 / network <red> <wildcard> area <N>`
+         EIGRP:   `router eigrp <AS> / no auto-summary / network <red> <wildcard> / passive-interface <LAN>`
 🔐 Fase 7: Seguridad (SOLO si el usuario lo indicó explícitamente)
 📡 Fase 8: Verificación
          Estático/RIP: `show ip route` + pings end-to-end
          OSPF:         `show ip ospf neighbor` + `show ip route` + pings
+         EIGRP:        `show ip eigrp neighbors` + `show ip route` + pings
 📊 Fase 9: Reportes (Excel + Backup .md en Topology_Reports/)
 ```
 

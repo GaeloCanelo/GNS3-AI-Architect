@@ -81,6 +81,8 @@ Una vez dentro de la interfaz de Gemini (escribiendo `gemini` en la terminal):
 ### Configuración y Diagnóstico
 *   **`configurar_vpc`**: Asigna IP, máscara y gateway a una VPC de forma automática.
 *   **`configurar_router_cisco`**: Envía ráfagas de comandos IOS a routers Cisco vía Telnet.
+*   **`calcular_eigrp`**: Antes de configurar EIGRP, úsala para obtener los wildcards correctas y los bloques IOS listos. Incluye `passive-interface` en LANs por defecto.
+*   **`calcular_ospf`**: Antes de configurar OSPF Multi-Area, úsala para obtener wildcards y resumen de áreas.
 *   **`verificar_conectividad`**: ¡Ping inteligente! Prueba la red desde VPCs o Routers y confirma el éxito (maneja retrasos de ARP).
 *   **`exportar_configuraciones`**: Extrae el `running-config` completo de un router para respaldarlo.
 

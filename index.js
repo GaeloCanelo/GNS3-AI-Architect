@@ -285,10 +285,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 
       {
         name: "generar_backup_comandos",
-        description: "Genera un archivo Markdown de backup con los comandos de configuración ejecutados en cada dispositivo. Permite re-configuración manual por copy-paste. Siempre guarda en Topology_Reports/.",
+        description: "Genera un archivo Markdown de backup con los comandos de configuración ejecutados en cada dispositivo. Permite re-configuración manual por copy-paste. Siempre guarda en Topology_Reports/. Si se provee project_id, valida que el array devices[] incluya TODOS los nodos del proyecto y emite WARNING si faltan.",
         inputSchema: {
           type: "object",
           properties: {
+            project_id: { type: "string", description: "Opcional pero RECOMENDADO: ID del proyecto GNS3. Permite validar que todos los nodos estén incluidos en el backup." },
             project_name: { type: "string", description: "Nombre del proyecto" },
             devices: {
               type: "array",
@@ -337,6 +338,48 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             }
           },
           required: ["routers"]
+        }
+      },
+      {
+        name: "calcular_eigrp",
+        description: "Calcula Wildcards EIGRP, genera bloques IOS 'router eigrp <AS> / network / no auto-summary' listos para copiar, e incluye passive-interface para interfaces LAN por defecto. Mostrar el resumen al usuario y esperar confirmación ANTES de configurar los routers.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            as_number: {
+              type: "number",
+              description: "Número de Sistema Autónomo EIGRP (ej: 100). Debe ser el mismo en todos los routers."
+            },
+            routers: {
+              type: "array",
+              description: "Lista de routers con sus redes a anunciar en EIGRP",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string", description: "Nombre del router (R1, R2...)" },
+                  networks: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        ip_red:      { type: "string", description: "IP de la red (ej: 192.168.1.0)" },
+                        cidr:        { type: "number", description: "Prefijo CIDR (ej: 26 para /26)" },
+                        descripcion: { type: "string", description: "Etiqueta descriptiva (LAN-PC1, WAN-R1-R2...)" }
+                      },
+                      required: ["ip_red", "cidr"]
+                    }
+                  },
+                  passive_interfaces: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Interfaces LAN donde NO se enviarán hellos EIGRP (passive-interface). Incluir por defecto todas las interfaces LAN (ej: ['Fa0/0']). Pasar array vacío [] solo si el usuario indica explícitamente 'sin passive-interface'."
+                  }
+                },
+                required: ["name", "networks"]
+              }
+            }
+          },
+          required: ["as_number", "routers"]
         }
       },
       {
@@ -1155,34 +1198,107 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         outPath = path.join(REPORTS_DIR, fname);
       }
 
-      let content = `# \ud83d\udcbe Backup de Comandos \u2014 ${args.project_name}\n`;
-      content += `> Generado autom\u00e1ticamente por GNS3 Topology Agent v3.3.0\n`;
+      // ── Validación cruzada contra nodos reales del proyecto (si se provee project_id) ──
+      let warningBlock = '';
+      let warningSummary = '';
+      if (args.project_id) {
+        try {
+          const projectNodes = await fetchGNS3(`/projects/${args.project_id}/nodes`);
+          const nodeNames = projectNodes.map(n => n.name);
+          const backedUp = new Set(args.devices.map(d => d.name));
+          const missing = nodeNames.filter(n => !backedUp.has(n));
+          if (missing.length > 0) {
+            warningBlock = `\n> ⚠️ **BACKUP INCOMPLETO** — Los siguientes nodos del proyecto NO están en este backup:\n> \`${missing.join(', ')}\`\n> Vuelve a llamar a \`generar_backup_comandos\` incluyendo todos los dispositivos.\n\n---\n\n`;
+            warningSummary = `\n⚠️ BACKUP INCOMPLETO — Faltan: ${missing.join(', ')}`;
+          }
+        } catch (_) { /* continuar sin validación si falla la consulta */ }
+      }
+
+      let content = `# 💾 Backup de Comandos — ${args.project_name}\n`;
+      content += `> Generado automáticamente por GNS3 Topology Agent v3.4.0\n`;
       content += `> Fecha: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}\n\n`;
       content += `---\n\n`;
-      content += `> **Instrucciones:** Copie y pegue los comandos de cada secci\u00f3n directamente en la consola del dispositivo correspondiente en GNS3. Los comandos est\u00e1n en el orden exacto de ejecuci\u00f3n.\n\n`;
+      if (warningBlock) content += warningBlock;
+      content += `> **Instrucciones:** Copie y pegue los comandos de cada sección directamente en la consola del dispositivo correspondiente en GNS3.\n\n`;
 
       for (const device of args.devices) {
-        const icon = device.device_type === 'router' ? '\ud83d\udce1' : device.device_type === 'vpc' ? '\ud83d\udcbb' : '\ud83d\udd27';
+        const icon = device.device_type === 'router' ? '📡' : device.device_type === 'vpc' ? '💻' : '🔧';
         content += `## ${icon} ${device.name}${device.device_type ? ` (${device.device_type})` : ''}\n`;
         content += '```\n';
-        for (const cmd of device.commands) {
-          content += cmd + '\n';
-        }
+        for (const cmd of device.commands) { content += cmd + '\n'; }
         content += '```\n\n';
-
-        // Sección de verificación si el agente la proporciona
         if (device.verification_output) {
-          content += `### \ud83d\udd0d Verificaci\u00f3n Post-Configuraci\u00f3n — ${device.name}\n`;
-          content += '```\n';
-          content += device.verification_output + '\n';
-          content += '```\n\n';
+          content += `### 🔍 Verificación — ${device.name}\n\`\`\`\n${device.verification_output}\n\`\`\`\n\n`;
         }
       }
 
       if (!fs.existsSync(REPORTS_DIR)) fs.mkdirSync(REPORTS_DIR, { recursive: true });
       fs.writeFileSync(outPath, content, 'utf-8');
 
-      return { content: [{ type: "text", text: `Backup de comandos generado: ${outPath}\nDispositivos: ${args.devices.map(d => d.name).join(', ')}` }] };
+      return { content: [{ type: "text", text: `Backup generado: ${outPath}\nDispositivos (${args.devices.length}): ${args.devices.map(d => d.name).join(', ')}${warningSummary}` }] };
+    }
+
+    // ─── Calculadora EIGRP: Wildcards + Bloques IOS + passive-interface ───
+
+    else if (name === "calcular_eigrp") {
+      const cidrToWildcard = (cidr) => {
+        const mask = ~(0xFFFFFFFF << (32 - cidr)) >>> 0;
+        return [(mask >>> 24) & 0xFF, (mask >>> 16) & 0xFF, (mask >>> 8) & 0xFF, mask & 0xFF].join('.');
+      };
+
+      const as = args.as_number;
+      let report = `📊 **Cálculo EIGRP — AS ${as}**\n`;
+      report += `${'═'.repeat(55)}\n\n`;
+      report += `> ⚠️ **\`no auto-summary\` es OBLIGATORIO** en IOS 12.4 para topologías VLSM.\n`;
+      report += `> Las interfaces LAN se marcan \`passive-interface\` por defecto (no envían hellos EIGRP pero sí anuncian la red).\n\n`;
+
+      for (const router of args.routers) {
+        report += `📡 **${router.name}**\n`;
+        report += `${'─'.repeat(40)}\n`;
+        report += `  router eigrp ${as}\n`;
+        report += `  no auto-summary\n`;
+
+        for (const net of router.networks) {
+          const wildcard = cidrToWildcard(net.cidr);
+          const iosCmd = `  network ${net.ip_red} ${wildcard}`;
+          report += `${iosCmd}${net.descripcion ? `    ← ${net.descripcion}` : ''}\n`;
+          // Advertir si la wildcard no es trivial (no es /30 o /24)
+          if (net.cidr !== 30 && net.cidr !== 24 && net.cidr !== 32) {
+            report += `  ! Wildcard /${net.cidr} → ${wildcard} (verificar)\n`;
+          }
+        }
+
+        // passive-interface para interfaces LAN
+        const passiveIfaces = router.passive_interfaces || [];
+        if (passiveIfaces.length > 0) {
+          report += `  ! Interfaces pasivas (sin hellos EIGRP hacia hosts):\n`;
+          for (const iface of passiveIfaces) {
+            report += `  passive-interface ${iface}\n`;
+          }
+        } else {
+          report += `  ! Sin passive-interface (el usuario indicó omitirlas o no aplica)\n`;
+        }
+
+        report += `  exit\n  end\n  write\n\n`;
+      }
+
+      // Resumen de redes por router
+      report += `\n🌐 **Resumen de Redes Anunciadas**\n`;
+      report += `${'═'.repeat(55)}\n`;
+      for (const router of args.routers) {
+        report += `\n🔹 **${router.name}** (AS ${as}):\n`;
+        for (const net of router.networks) {
+          const wildcard = cidrToWildcard(net.cidr);
+          report += `  • ${net.ip_red}/${net.cidr} (wildcard: ${wildcard})${net.descripcion ? ` — ${net.descripcion}` : ''}\n`;
+        }
+        const passiveIfaces = router.passive_interfaces || [];
+        if (passiveIfaces.length > 0) {
+          report += `  🔒 Interfaces pasivas: ${passiveIfaces.join(', ')}\n`;
+        }
+      }
+
+      report += `\n✔️ Revisa el plan arriba. Si es correcto, procedo a configurar los routers.`;
+      return { content: [{ type: "text", text: report }] };
     }
 
     // ─── Calculadora OSPF: Wildcards + Áreas + Bloques IOS ───
